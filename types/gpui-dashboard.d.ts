@@ -15,8 +15,17 @@ interface BarStatItem {
   label: string;
   value: number;
   unit?: string;
-  color?: string;  // hex 如 "#ff5500"
-  font?: string;   // 字体名 如 "Helvetica"
+  color?: string;
+  font?: string;
+  action?: BarAction;
+}
+
+interface BarInfoLineItem {
+  title: string;
+  desc?: string;
+  color?: string;
+  descColor?: string;
+  font?: string;
   action?: BarAction;
 }
 
@@ -43,12 +52,7 @@ type BarPanel =
     }
   | {
       kind: "info-line";
-      title: string;
-      desc?: string;
-      color?: string;
-      descColor?: string;
-      font?: string;
-      action?: BarAction;
+      items: BarInfoLineItem[];
     }
   | {
       kind: "info-block";
@@ -201,6 +205,13 @@ declare function exec(command: string): Promise<string>;
  * macOS 首次调用会弹 Keychain 授权框（"Chrome Safe Storage wants to be accessed"）。
  */
 declare function cookies(domain?: string, browser?: string): Promise<Cookie[]>;
+
+/**
+ * host function: 读取进程环境变量。
+ * 变量不存在时 throw,调用方需 try/catch。
+ * 同步返回,不走 Promise。
+ */
+declare function env(name: string): string;
 
 interface Cookie {
   name: string;

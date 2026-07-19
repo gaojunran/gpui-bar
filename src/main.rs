@@ -33,8 +33,24 @@ fn main() {
             let screen = display.bounds();
 
             let bar_w = px(360.);
-            let panel_count = bar_config.panels.len() as f32;
-            let bar_h = px(24. + 56. * panel_count + 8. * (panel_count - 1.0).max(0.0));
+            // 每个 panel 基础高度 56px;info-line 按行数计算(每行 ~22px + 12px padding)
+            let bar_h: Pixels = {
+                let mut h = 24f32; // 上下窗口 padding
+                let n = bar_config.panels.len() as f32;
+                for (i, panel) in bar_config.panels.iter().enumerate() {
+                    if i > 0 {
+                        h += 8.0; // panel 间距
+                    }
+                    h += match panel {
+                        crate::config::BarPanel::InfoLine { items } => {
+                            (items.len().max(1) as f32) * 22.0 + 12.0
+                        }
+                        _ => 56.0,
+                    };
+                }
+                let _ = n;
+                px(h)
+            };
             let margin = px(16.);
             let origin = Point {
                 x: screen.origin.x + screen.size.width - bar_w - margin,

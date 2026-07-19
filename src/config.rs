@@ -47,22 +47,9 @@ pub enum BarPanel {
         #[serde(default)]
         action: Option<BarAction>,
     },
-    /// 单行信息:title 左,desc 右,两端对齐,溢出省略号
+    /// 单行信息列表:每行 title 左 / desc 右,两端对齐,溢出省略号
     InfoLine {
-        title: String,
-        #[serde(default)]
-        desc: Option<String>,
-        /// title 颜色,hex。None 时用前景色。
-        #[serde(default)]
-        color: Option<String>,
-        /// desc 颜色,hex。None 时用 muted 色。
-        #[serde(default)]
-        desc_color: Option<String>,
-        /// 字体名。None 时用默认字体。
-        #[serde(default)]
-        font: Option<String>,
-        #[serde(default)]
-        action: Option<BarAction>,
+        items: Vec<BarInfoLineItem>,
     },
     /// 多行信息:title 一行,desc 可换行
     InfoBlock {
@@ -78,6 +65,21 @@ pub enum BarPanel {
         #[serde(default)]
         action: Option<BarAction>,
     },
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct BarInfoLineItem {
+    pub title: String,
+    #[serde(default)]
+    pub desc: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub desc_color: Option<String>,
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default)]
+    pub action: Option<BarAction>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

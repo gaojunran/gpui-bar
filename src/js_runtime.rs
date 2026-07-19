@@ -248,6 +248,22 @@ impl From<rookie::enums::Cookie> for CookieOut {
     }
 }
 
+/// host function: env(name) -> string
+/// 读取进程环境变量。变量不存在时 throw JS 异常(让 TS 侧 try/catch 处理)。
+/// 同步返回,不走 Promise(env 读取是纯内存操作)。
+fn env_handler<'js>(ctx: Ctx<'js>, name: String) -> rquickjs::Result<String> {
+    match std::env::var(&name) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            eprintln!("[env] `{name}` not found: {e}");
+            Err(rquickjs::Exception::throw_message(
+                &ctx,
+                &format!("env `{name}` not found: {e}"),
+            ))
+        }
+    }
+}
+
 /// host function: cookies(domain?, browser?) -> Promise<Cookie[]>
 /// domain: 可选,过滤域名(rookie 用 LIKE '%domain%',可能 false-match,调用者需自行验证)
 /// browser: "chrome" | "firefox" | "edge" | "brave" | "arc" | "safari" | "all"(默认)
@@ -333,6 +349,7 @@ pub fn run_config(config_path: &Path) -> anyhow::Result<Value> {
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
         global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
+        global.set("env", Function::new(ctx.clone(), env_handler)?)?;
 
         // Module API 处理 export default
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
@@ -375,6 +392,7 @@ pub fn call_config_function(config_path: &Path, func_name: &str) -> anyhow::Resu
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
         global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
+        global.set("env", Function::new(ctx.clone(), env_handler)?)?;
 
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
         let (evaluated, eval_promise) = module.eval()?;

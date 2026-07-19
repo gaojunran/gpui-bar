@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use gpui::*;
 use gpui_component::{h_flex, v_flex, progress::Progress, ActiveTheme, Sizable, StyledExt as _};
 
-use crate::config::{BarAction, BarConfig, BarPanel, BarStatItem};
+use crate::config::{BarAction, BarConfig, BarInfoLineItem, BarPanel, BarStatItem};
 
 pub struct Bar {
     config: BarConfig,
@@ -248,52 +248,53 @@ impl Bar {
         d
     }
 
+    /// info-line 列表:每行 title 左 / desc 右,紧凑单行,溢出省略号
     fn render_info_line(
         &self,
-        title: &str,
-        desc: &Option<String>,
-        color: &Option<String>,
-        desc_color: &Option<String>,
-        font: &Option<String>,
-        action: &Option<BarAction>,
+        items: &[BarInfoLineItem],
         panel_idx: usize,
         theme: &gpui_component::Theme,
     ) -> impl IntoElement {
-        let title_color = color.as_deref()
-            .and_then(Self::parse_color)
-            .unwrap_or(theme.foreground);
-        let desc_color_resolved = desc_color.as_deref()
-            .and_then(Self::parse_color)
-            .unwrap_or(theme.muted_foreground);
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let title_color = item.color.as_deref()
+                .and_then(Self::parse_color)
+                .unwrap_or(theme.foreground);
+            let desc_color = item.desc_color.as_deref()
+                .and_then(Self::parse_color)
+                .unwrap_or(theme.muted_foreground);
 
-        let mut row = h_flex()
-            .h_full()
-            .items_center()
-            .gap(px(8.))
-            // title 截断收缩,把空间让给 desc
-            .child(
-                Self::text_div(title, |d| d.text_sm().font_semibold(), title_color, font)
-                    .truncate()
-                    .flex_shrink(1.0),
-            );
+            let mut row = h_flex()
+                .w_full()
+                .items_center()
+                .gap(px(6.))
+                // title 固定不收缩、不截断(如 #13025 短编号应完整显示)
+                .child(
+                    Self::text_div(&item.title, |d| d.text_xs().font_semibold(), title_color, &item.font)
+                        .flex_shrink(0.0),
+                );
 
-        if let Some(desc_text) = desc {
-            row = row.child(
-                Self::text_div(desc_text, |d| d.text_xs(), desc_color_resolved, font)
-                    .truncate()
-                    .flex_shrink(1.0)
-                    // desc 靠右
-                    .ml_auto(),
+            if let Some(desc_text) = &item.desc {
+                row = row.child(
+                    Self::text_div(desc_text, |d| d.text_xs(), desc_color, &item.font)
+                        .truncate()
+                        .flex_shrink(1.0)
+                        .min_w(px(0.))
+                        .ml_auto(),
+                );
+            }
+
+            let clickable = Self::make_clickable(
+                row.py(px(2.)),
+                ElementId::named_usize(format!("info-line-{panel_idx}"), i),
+                item.action.as_ref(),
+                theme,
+                false,
             );
+            rows.push(clickable.into_any_element());
         }
 
-        Self::make_clickable(
-            row.px(px(8.)),
-            ElementId::Name(format!("info-line-{panel_idx}").into()),
-            action.as_ref(),
-            theme,
-            true,
-        )
+        v_flex().w_full().children(rows)
     }
 
     fn render_info_block(
@@ -358,11 +359,8 @@ impl Bar {
                 )
                 .into_any_element()
             }
-            BarPanel::InfoLine { title, desc, color, desc_color, font, action } => {
-                self.render_info_line(
-                    title, desc, color, desc_color, font, action, panel_idx, theme,
-                )
-                .into_any_element()
+            BarPanel::InfoLine { items } => {
+                self.render_info_line(items, panel_idx, theme).into_any_element()
             }
             BarPanel::InfoBlock { title, desc, color, desc_color, font, action } => {
                 self.render_info_block(
