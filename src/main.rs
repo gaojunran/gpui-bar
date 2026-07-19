@@ -43,9 +43,10 @@ fn main() {
                     }
                     h += match panel {
                         crate::config::BarPanel::InfoLine { items } => {
-                            (items.len().max(1) as f32) * 22.0 + 12.0
+                            // 行高 22px + py(4)*2 = 8px 呼吸空间
+                            (items.len().max(1) as f32) * 22.0 + 8.0
                         }
-                        _ => 56.0,
+                        _ => 56.0 + 8.0,
                     };
                 }
                 let _ = n;

@@ -384,7 +384,14 @@ impl Render for Bar {
         let panel_count = self.config.panels.len();
 
         for (i, panel) in self.config.panels.iter().enumerate() {
-            panels.push(self.render_panel(panel, i, theme));
+            // 每个 panel 上下留 4px 呼吸空间,避免内容紧贴分割线
+            // info-line 列表内部行间距不受影响(py 作用在列表整体外层)
+            panels.push(
+                div()
+                    .py(px(4.))
+                    .child(self.render_panel(panel, i, theme))
+                    .into_any_element(),
+            );
 
             if i < panel_count.saturating_sub(1) {
                 panels.push(
