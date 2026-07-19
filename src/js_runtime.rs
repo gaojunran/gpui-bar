@@ -62,6 +62,32 @@ fn fetch_handler<'js>(ctx: Ctx<'js>, url: String) -> rquickjs::Result<Promise<'j
     Ok(promise)
 }
 
+/// host function: exec(command) -> Promise<string>
+/// 同步执行 shell 命令(sh -c),返回 stdout。失败时 reject,stderr 打到 stderr。
+/// 实际是串行阻塞(和 fetch 一致),慢命令会拖慢 config 加载。
+fn exec_handler<'js>(ctx: Ctx<'js>, command: String) -> rquickjs::Result<Promise<'js>> {
+    let (promise, resolve, reject) = Promise::new(&ctx)?;
+    match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&command)
+        .output()
+    {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("[exec] `{command}` failed (status {:?}): {stderr}", out.status.code());
+            }
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            resolve.call::<_, ()>((stdout,))?;
+        }
+        Err(e) => {
+            eprintln!("[exec] `{command}` spawn failed: {e}");
+            reject.call::<_, ()>((e.to_string(),))?;
+        }
+    }
+    Ok(promise)
+}
+
 /// host function: fetchJson(url) -> Promise<any>
 /// fetch 后在 JS 侧 JSON.parse，避免 Rust↔JS 值转换。
 fn fetch_json_handler<'js>(ctx: Ctx<'js>, url: String) -> rquickjs::Result<Promise<'js>> {
@@ -102,6 +128,7 @@ pub fn run_config(config_path: &Path) -> anyhow::Result<Value> {
         let global = ctx.globals();
         global.set("fetch", Function::new(ctx.clone(), fetch_handler)?)?;
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
+        global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
 
         // Module API 处理 export default
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
@@ -142,6 +169,7 @@ pub fn call_config_function(config_path: &Path, func_name: &str) -> anyhow::Resu
         let global = ctx.globals();
         global.set("fetch", Function::new(ctx.clone(), fetch_handler)?)?;
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
+        global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
 
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
         let (evaluated, eval_promise) = module.eval()?;

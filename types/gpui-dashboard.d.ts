@@ -134,3 +134,10 @@ declare function fetch(url: string): Promise<string>;
  * 推荐：响应非合法 JSON 时 Promise reject。
  */
 declare function fetchJson(url: string): Promise<unknown>;
+
+/**
+ * host function: 通过 `sh -c` 执行 shell 命令，返回 stdout。
+ * 同步阻塞执行（在专用线程），命令失败时 Promise reject。
+ * 注意：慢命令会拖慢 config 加载；复杂场景建议用 fetchJson 调本地 HTTP 服务。
+ */
+declare function exec(command: string): Promise<string>;
