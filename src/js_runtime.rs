@@ -88,6 +88,82 @@ fn exec_handler<'js>(ctx: Ctx<'js>, command: String) -> rquickjs::Result<Promise
     Ok(promise)
 }
 
+/// 从浏览器读取 cookie,序列化为 JSON 供 JS 侧 JSON.parse。
+#[derive(serde::Serialize)]
+struct CookieOut {
+    name: String,
+    value: String,
+    domain: String,
+    path: String,
+    secure: bool,
+    http_only: bool,
+    expires: Option<u64>,
+    same_site: i64,
+}
+
+impl From<rookie::enums::Cookie> for CookieOut {
+    fn from(c: rookie::enums::Cookie) -> Self {
+        Self {
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            http_only: c.http_only,
+            expires: c.expires,
+            same_site: c.same_site,
+        }
+    }
+}
+
+/// host function: cookies(domain?, browser?) -> Promise<Cookie[]>
+/// domain: 可选,过滤域名(rookie 用 LIKE '%domain%',可能 false-match,调用者需自行验证)
+/// browser: "chrome" | "firefox" | "edge" | "brave" | "arc" | "safari" | "all"(默认)
+/// macOS 首次调用会弹 Keychain 授权框("Chrome Safe Storage wants to be accessed")
+fn cookies_handler<'js>(
+    ctx: Ctx<'js>,
+    domain: Option<String>,
+    browser: Option<String>,
+) -> rquickjs::Result<Promise<'js>> {
+    let (promise, resolve, reject) = Promise::new(&ctx)?;
+    let domains = domain.map(|d| vec![d]);
+    let result = match browser.as_deref() {
+        Some("chrome") => rookie::chrome(domains),
+        Some("firefox") => rookie::firefox(domains),
+        Some("edge") => rookie::edge(domains),
+        Some("brave") => rookie::brave(domains),
+        Some("arc") => rookie::arc(domains),
+        Some("safari") => rookie::safari(domains),
+        Some("all") | None => rookie::load(domains),
+        Some(other) => {
+            let msg = format!("unknown browser: {other} (supported: chrome, firefox, edge, brave, arc, safari, all)");
+            eprintln!("[cookies] {msg}");
+            reject.call::<_, ()>((msg,))?;
+            return Ok(promise);
+        }
+    };
+    match result {
+        Ok(raw_cookies) => {
+            let cookies: Vec<CookieOut> = raw_cookies.into_iter().map(Into::into).collect();
+            match serde_json::to_string(&cookies) {
+                Ok(json) => {
+                    ctx.globals().set("__cookies_json", json)?;
+                    match ctx.eval::<rquickjs::Value, _>("JSON.parse(__cookies_json)") {
+                        Ok(parsed) => resolve.call::<_, ()>((parsed,))?,
+                        Err(e) => reject.call::<_, ()>((e.to_string(),))?,
+                    }
+                }
+                Err(e) => reject.call::<_, ()>((e.to_string(),))?,
+            }
+        }
+        Err(e) => {
+            eprintln!("[cookies] read failed: {e}");
+            reject.call::<_, ()>((e.to_string(),))?;
+        }
+    }
+    Ok(promise)
+}
+
 /// host function: fetchJson(url) -> Promise<any>
 /// fetch 后在 JS 侧 JSON.parse，避免 Rust↔JS 值转换。
 fn fetch_json_handler<'js>(ctx: Ctx<'js>, url: String) -> rquickjs::Result<Promise<'js>> {
@@ -129,6 +205,7 @@ pub fn run_config(config_path: &Path) -> anyhow::Result<Value> {
         global.set("fetch", Function::new(ctx.clone(), fetch_handler)?)?;
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
+        global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
 
         // Module API 处理 export default
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
@@ -170,6 +247,7 @@ pub fn call_config_function(config_path: &Path, func_name: &str) -> anyhow::Resu
         global.set("fetch", Function::new(ctx.clone(), fetch_handler)?)?;
         global.set("fetchJson", Function::new(ctx.clone(), fetch_json_handler)?)?;
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
+        global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
 
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
         let (evaluated, eval_promise) = module.eval()?;

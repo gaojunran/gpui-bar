@@ -141,3 +141,28 @@ declare function fetchJson(url: string): Promise<unknown>;
  * 注意：慢命令会拖慢 config 加载；复杂场景建议用 fetchJson 调本地 HTTP 服务。
  */
 declare function exec(command: string): Promise<string>;
+
+/**
+ * host function: 从浏览器读取 cookies。
+ *
+ * @param domain  可选域名过滤。注意 rookie 内部用 `LIKE '%domain%'`，
+ *                可能匹配到子串（如 "woa.com" 会匹配 "xxwoa.comyy"），
+ *                调用者需自行精确校验 domain 字段。
+ * @param browser 浏览器名："chrome" | "firefox" | "edge" | "brave" |
+ *                "arc" | "safari" | "all"（默认 "all"，尝试所有已安装浏览器）
+ * @returns       cookie 数组
+ *
+ * macOS 首次调用会弹 Keychain 授权框（"Chrome Safe Storage wants to be accessed"）。
+ */
+declare function cookies(domain?: string, browser?: string): Promise<Cookie[]>;
+
+interface Cookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  http_only: boolean;
+  expires: number | null;
+  same_site: number;
+}
