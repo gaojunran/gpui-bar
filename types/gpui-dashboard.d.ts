@@ -124,16 +124,44 @@ type IconName =
   | "user";
 
 /**
- * host function: HTTP GET，返回响应体文本。
+ * host function: 发起 HTTP 请求，返回完整响应对象。
  * 同步阻塞执行（在专用线程），Promise 立即 resolve。
+ *
+ * @param url     请求 URL
+ * @param options 请求选项
+ * @returns       { status, headers, body }
+ *                body 为 string；非 2xx 也会 resolve（看 status 判断成功）。
+ *                redirect: "manual" 时不跟随重定向，用于识别 302 失效信号。
  */
-declare function fetch(url: string): Promise<string>;
+declare function fetch(
+  url: string,
+  options?: RequestOptions
+): Promise<HttpResponse<string>>;
 
 /**
- * host function: HTTP GET + JSON.parse，返回已解析的对象。
- * 推荐：响应非合法 JSON 时 Promise reject。
+ * host function: 同 fetch，但 body 尝试 JSON.parse。
+ * parse 失败时 body 回退为 string（不 reject），方便调用者判断
+ * 鉴权失败返回的 HTML 登录页等场景。
  */
-declare function fetchJson(url: string): Promise<unknown>;
+declare function fetchJson(
+  url: string,
+  options?: RequestOptions
+): Promise<HttpResponse<unknown>>;
+
+interface RequestOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  /** "manual" 时不跟随重定向，用于识别 302 失效信号。默认 "follow" */
+  redirect?: "manual" | "follow";
+}
+
+interface HttpResponse<T = string> {
+  status: number;
+  /** header 名全部小写 */
+  headers: Record<string, string>;
+  body: T;
+}
 
 /**
  * host function: 通过 `sh -c` 执行 shell 命令，返回 stdout。

@@ -1,8 +1,13 @@
 use std::path::PathBuf;
 
 fn main() {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let path = PathBuf::from(home).join(".config/gpui-dashboard/dashboard.config.ts");
+    let path: PathBuf = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+            PathBuf::from(home).join(".config/gpui-dashboard/dashboard.config.ts")
+        });
     println!("config path: {}", path.display());
 
     match gpui_dashboard::js_runtime::run_config(&path) {

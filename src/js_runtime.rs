@@ -47,13 +47,131 @@ fn http_client() -> reqwest::blocking::Client {
         .expect("build reqwest client")
 }
 
-/// host function: fetch(url) -> Promise<string>
-/// 同步阻塞 reqwest::blocking，在 JS 线程内完成，Promise 立即 resolve。
-fn fetch_handler<'js>(ctx: Ctx<'js>, url: String) -> rquickjs::Result<Promise<'js>> {
+/// 不自动跟随重定向的 client(用于识别 302 passport.woa.com 等失效信号)
+fn http_client_no_redirect() -> reqwest::blocking::Client {
+    reqwest::blocking::Client::builder()
+        .user_agent("gpui-dashboard/0.1")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("build reqwest client")
+}
+
+/// fetch / fetchJson 的请求选项,从 JS options 对象经 JSON 桥接反序列化。
+#[derive(serde::Deserialize, Default)]
+struct RequestOptions {
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(default)]
+    headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    redirect: Option<String>,
+}
+
+/// fetch / fetchJson 的响应体。body 用 serde_json::Value,
+/// fetch 时为 string,fetchJson 时为已解析的 JSON 值(parse 失败回退为 string)。
+#[derive(serde::Serialize)]
+struct HttpResponse {
+    status: u16,
+    headers: std::collections::HashMap<String, String>,
+    body: serde_json::Value,
+}
+
+/// 把 JS 侧传入的 options Value 经 JSON.stringify -> serde_json 反序列化为 RequestOptions。
+/// undefined / null 返回默认值(全 GET、无头、follow redirect)。
+fn parse_options<'js>(
+    ctx: &Ctx<'js>,
+    options: Option<rquickjs::Value<'js>>,
+) -> rquickjs::Result<RequestOptions> {
+    match options {
+        Some(v) if !v.is_undefined() && !v.is_null() => {
+            ctx.globals().set("__req_opts", v)?;
+            let json: String = ctx.eval::<String, _>("JSON.stringify(__req_opts)")?;
+            Ok(serde_json::from_str(&json).unwrap_or_default())
+        }
+        _ => Ok(RequestOptions::default()),
+    }
+}
+
+/// 执行一次 HTTP 请求,返回 reqwest::blocking::Response。
+fn do_request(url: &str, opts: &RequestOptions) -> anyhow::Result<reqwest::blocking::Response> {
+    let client = if opts.redirect.as_deref() == Some("manual") {
+        http_client_no_redirect()
+    } else {
+        http_client()
+    };
+    let method = opts.method.as_deref().unwrap_or("GET");
+    let m = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|e| anyhow::anyhow!("invalid method `{method}`: {e}"))?;
+    let mut builder = client.request(m, url);
+    if let Some(h) = &opts.headers {
+        for (k, v) in h {
+            if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
+                if let Ok(val) = reqwest::header::HeaderValue::from_str(v) {
+                    builder = builder.header(name, val);
+                }
+            }
+        }
+    }
+    if let Some(body) = &opts.body {
+        builder = builder.body(body.clone());
+    }
+    Ok(builder.send()?)
+}
+
+/// 把 reqwest Response 转成 JS HttpResponse 对象并 resolve。
+/// parse_json=true 时尝试把 body 解析成 JSON(失败回退为 string,不 reject,
+/// 这样鉴权失败返回 HTML 登录页时调用者能拿到原始 body 判断)。
+fn resolve_response<'js>(
+    ctx: &Ctx<'js>,
+    resolve: &rquickjs::Function<'js>,
+    reject: &rquickjs::Function<'js>,
+    resp: reqwest::blocking::Response,
+    parse_json: bool,
+) -> rquickjs::Result<()> {
+    let status = resp.status().as_u16();
+    let mut hdrs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (k, v) in resp.headers() {
+        if let Ok(s) = v.to_str() {
+            hdrs.insert(k.as_str().to_lowercase(), s.to_string());
+        }
+    }
+    let body_text = resp.text().unwrap_or_default();
+    let body_value: serde_json::Value = if parse_json {
+        serde_json::from_str(&body_text).unwrap_or(serde_json::Value::String(body_text))
+    } else {
+        serde_json::Value::String(body_text)
+    };
+    let http_resp = HttpResponse {
+        status,
+        headers: hdrs,
+        body: body_value,
+    };
+    match serde_json::to_string(&http_resp) {
+        Ok(json) => {
+            ctx.globals().set("__resp_json", json)?;
+            match ctx.eval::<rquickjs::Value, _>("JSON.parse(__resp_json)") {
+                Ok(v) => resolve.call::<_, ()>((v,)),
+                Err(e) => reject.call::<_, ()>((e.to_string(),)),
+            }
+        }
+        Err(e) => reject.call::<_, ()>((e.to_string(),)),
+    }
+}
+
+/// host function: fetch(url, options?) -> Promise<HttpResponse>
+/// options: { method?, headers?, body?, redirect?: "manual" | "follow" }
+/// 返回 { status, headers, body },body 为 string。
+fn fetch_handler<'js>(
+    ctx: Ctx<'js>,
+    url: String,
+    options: Option<rquickjs::Value<'js>>,
+) -> rquickjs::Result<Promise<'js>> {
     let (promise, resolve, reject) = Promise::new(&ctx)?;
-    let result = http_client().get(&url).send().and_then(|r| r.text());
-    match result {
-        Ok(body) => resolve.call::<_, ()>((body,))?,
+    let opts = parse_options(&ctx, options)?;
+    match do_request(&url, &opts) {
+        Ok(resp) => resolve_response(&ctx, &resolve, &reject, resp, false)?,
         Err(e) => {
             eprintln!("[fetch] error for {url}: {e}");
             reject.call::<_, ()>((e.to_string(),))?;
@@ -164,23 +282,18 @@ fn cookies_handler<'js>(
     Ok(promise)
 }
 
-/// host function: fetchJson(url) -> Promise<any>
-/// fetch 后在 JS 侧 JSON.parse，避免 Rust↔JS 值转换。
-fn fetch_json_handler<'js>(ctx: Ctx<'js>, url: String) -> rquickjs::Result<Promise<'js>> {
+/// host function: fetchJson(url, options?) -> Promise<HttpResponse>
+/// 同 fetch,但 body 尝试解析为 JSON(失败回退为 string,不 reject)。
+/// options 与 fetch 一致。
+fn fetch_json_handler<'js>(
+    ctx: Ctx<'js>,
+    url: String,
+    options: Option<rquickjs::Value<'js>>,
+) -> rquickjs::Result<Promise<'js>> {
     let (promise, resolve, reject) = Promise::new(&ctx)?;
-    let result = http_client().get(&url).send().and_then(|r| r.text());
-    match result {
-        Ok(body) => {
-            ctx.globals().set("__fetch_json_body", body)?;
-            // JSON.parse 失败时 reject 而非让 host function 抛异常
-            match ctx.eval::<rquickjs::Value, _>("JSON.parse(__fetch_json_body)") {
-                Ok(parsed) => resolve.call::<_, ()>((parsed,))?,
-                Err(_) => {
-                    let msg = "fetchJson: response is not valid JSON";
-                    reject.call::<_, ()>((msg,))?;
-                }
-            }
-        }
+    let opts = parse_options(&ctx, options)?;
+    match do_request(&url, &opts) {
+        Ok(resp) => resolve_response(&ctx, &resolve, &reject, resp, true)?,
         Err(e) => {
             eprintln!("[fetchJson] error for {url}: {e}");
             reject.call::<_, ()>((e.to_string(),))?;
