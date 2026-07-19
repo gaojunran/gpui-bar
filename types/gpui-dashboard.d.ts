@@ -40,6 +40,24 @@ type BarPanel =
       color?: string;
       font?: string;
       action?: BarAction;
+    }
+  | {
+      kind: "info-line";
+      title: string;
+      desc?: string;
+      color?: string;
+      descColor?: string;
+      font?: string;
+      action?: BarAction;
+    }
+  | {
+      kind: "info-block";
+      title: string;
+      desc?: string;
+      color?: string;
+      descColor?: string;
+      font?: string;
+      action?: BarAction;
     };
 
 interface BarConfig {

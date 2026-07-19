@@ -234,6 +234,114 @@ impl Bar {
         Self::make_clickable(card_el, ElementId::Name(format!("prog-{panel_idx}").into()), action.as_ref(), theme, true)
     }
 
+    /// 通用:构造带可选字体/颜色的文字 div
+    fn text_div(
+        content: &str,
+        text_size: impl Fn(Div) -> Div,
+        color: Hsla,
+        font: &Option<String>,
+    ) -> Div {
+        let mut d = text_size(div()).text_color(color).child(content.to_string());
+        if let Some(f) = font {
+            d = d.font_family(f.clone());
+        }
+        d
+    }
+
+    fn render_info_line(
+        &self,
+        title: &str,
+        desc: &Option<String>,
+        color: &Option<String>,
+        desc_color: &Option<String>,
+        font: &Option<String>,
+        action: &Option<BarAction>,
+        panel_idx: usize,
+        theme: &gpui_component::Theme,
+    ) -> impl IntoElement {
+        let title_color = color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.foreground);
+        let desc_color_resolved = desc_color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.muted_foreground);
+
+        let mut row = h_flex()
+            .h_full()
+            .items_center()
+            .gap(px(8.))
+            // title 截断收缩,把空间让给 desc
+            .child(
+                Self::text_div(title, |d| d.text_sm().font_semibold(), title_color, font)
+                    .truncate()
+                    .flex_shrink(1.0),
+            );
+
+        if let Some(desc_text) = desc {
+            row = row.child(
+                Self::text_div(desc_text, |d| d.text_xs(), desc_color_resolved, font)
+                    .truncate()
+                    .flex_shrink(1.0)
+                    // desc 靠右
+                    .ml_auto(),
+            );
+        }
+
+        Self::make_clickable(
+            row.px(px(8.)),
+            ElementId::Name(format!("info-line-{panel_idx}").into()),
+            action.as_ref(),
+            theme,
+            true,
+        )
+    }
+
+    fn render_info_block(
+        &self,
+        title: &str,
+        desc: &Option<String>,
+        color: &Option<String>,
+        desc_color: &Option<String>,
+        font: &Option<String>,
+        action: &Option<BarAction>,
+        panel_idx: usize,
+        theme: &gpui_component::Theme,
+    ) -> impl IntoElement {
+        let title_color = color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.foreground);
+        let desc_color_resolved = desc_color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.muted_foreground);
+
+        let mut col = v_flex()
+            .h_full()
+            .justify_center()
+            .gap(px(2.))
+            .px(px(8.))
+            // title 单行省略号
+            .child(
+                Self::text_div(title, |d| d.text_sm().font_semibold(), title_color, font)
+                    .truncate(),
+            );
+
+        if let Some(desc_text) = desc {
+            col = col.child(
+                Self::text_div(desc_text, |d| d.text_xs(), desc_color_resolved, font)
+                    // desc 允许换行,最多 2 行避免撑太高
+                    .line_clamp(2),
+            );
+        }
+
+        Self::make_clickable(
+            col,
+            ElementId::Name(format!("info-block-{panel_idx}").into()),
+            action.as_ref(),
+            theme,
+            true,
+        )
+    }
+
     fn render_panel(
         &self,
         panel: &BarPanel,
@@ -247,6 +355,18 @@ impl Bar {
             BarPanel::ProgressBar { label, value, max, unit, color, font, action } => {
                 self.render_progress_bar(
                     label, *value, *max, unit, color, font, action, panel_idx, theme,
+                )
+                .into_any_element()
+            }
+            BarPanel::InfoLine { title, desc, color, desc_color, font, action } => {
+                self.render_info_line(
+                    title, desc, color, desc_color, font, action, panel_idx, theme,
+                )
+                .into_any_element()
+            }
+            BarPanel::InfoBlock { title, desc, color, desc_color, font, action } => {
+                self.render_info_block(
+                    title, desc, color, desc_color, font, action, panel_idx, theme,
                 )
                 .into_any_element()
             }

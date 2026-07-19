@@ -95,6 +95,7 @@ fn parse_options<'js>(
 }
 
 /// 执行一次 HTTP 请求,返回 reqwest::blocking::Response。
+/// 网络错误重试最多 3 次(间隔 500ms),避免偶发连接失败。
 fn do_request(url: &str, opts: &RequestOptions) -> anyhow::Result<reqwest::blocking::Response> {
     let client = if opts.redirect.as_deref() == Some("manual") {
         http_client_no_redirect()
@@ -104,20 +105,33 @@ fn do_request(url: &str, opts: &RequestOptions) -> anyhow::Result<reqwest::block
     let method = opts.method.as_deref().unwrap_or("GET");
     let m = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|e| anyhow::anyhow!("invalid method `{method}`: {e}"))?;
-    let mut builder = client.request(m, url);
-    if let Some(h) = &opts.headers {
-        for (k, v) in h {
-            if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
-                if let Ok(val) = reqwest::header::HeaderValue::from_str(v) {
-                    builder = builder.header(name, val);
+
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..3u32 {
+        let mut builder = client.request(m.clone(), url);
+        if let Some(h) = &opts.headers {
+            for (k, v) in h {
+                if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
+                    if let Ok(val) = reqwest::header::HeaderValue::from_str(v) {
+                        builder = builder.header(name, val);
+                    }
+                }
+            }
+        }
+        if let Some(body) = &opts.body {
+            builder = builder.body(body.clone());
+        }
+        match builder.send() {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!(e));
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
             }
         }
     }
-    if let Some(body) = &opts.body {
-        builder = builder.body(body.clone());
-    }
-    Ok(builder.send()?)
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("request failed after 3 attempts")))
 }
 
 /// 把 reqwest Response 转成 JS HttpResponse 对象并 resolve。
