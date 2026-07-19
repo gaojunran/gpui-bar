@@ -52,6 +52,7 @@ type BarPanel =
     }
   | {
       kind: "info-line";
+      title?: string;
       items: BarInfoLineItem[];
     }
   | {

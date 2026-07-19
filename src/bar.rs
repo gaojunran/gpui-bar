@@ -251,11 +251,31 @@ impl Bar {
     /// info-line 列表:每行 title 左 / desc 右,紧凑单行,溢出省略号
     fn render_info_line(
         &self,
+        panel_title: &Option<String>,
         items: &[BarInfoLineItem],
         panel_idx: usize,
         theme: &gpui_component::Theme,
     ) -> impl IntoElement {
         let mut rows: Vec<AnyElement> = Vec::new();
+
+        // 可选标题:普通字号(text_xs),非醒目,仅作分组说明。
+        // title 行加 py(2) 与 item 行对齐,使列表上下边距对称:
+        // 否则首行 title 无 py,顶部内容到分割线 = wrapper py(12) = 12px;
+        // 末行 item 有 py(2),底部内容到分割线 = wrapper py(12) + item py(2) = 14px,
+        // 视觉上上小下大。加 py(2) 后上下均为 14px。
+        if let Some(title) = panel_title {
+            rows.push(
+                Self::text_div(
+                    title,
+                    |d| d.text_xs(),
+                    theme.muted_foreground,
+                    &None,
+                )
+                .py(px(2.))
+                .into_any_element(),
+            );
+        }
+
         for (i, item) in items.iter().enumerate() {
             let title_color = item.color.as_deref()
                 .and_then(Self::parse_color)
@@ -294,7 +314,9 @@ impl Bar {
             rows.push(clickable.into_any_element());
         }
 
-        v_flex().w_full().children(rows)
+        // px(8) 与 progress-bar 的 card_el.px(8) 对齐,
+        // 使两个 panel 相对窗口的水平 padding 一致(以 progress-bar 为准)
+        v_flex().w_full().px(px(8.)).children(rows)
     }
 
     fn render_info_block(
@@ -359,8 +381,9 @@ impl Bar {
                 )
                 .into_any_element()
             }
-            BarPanel::InfoLine { items } => {
-                self.render_info_line(items, panel_idx, theme).into_any_element()
+            BarPanel::InfoLine { title, items } => {
+                self.render_info_line(title, items, panel_idx, theme)
+                    .into_any_element()
             }
             BarPanel::InfoBlock { title, desc, color, desc_color, font, action } => {
                 self.render_info_block(
@@ -384,11 +407,12 @@ impl Render for Bar {
         let panel_count = self.config.panels.len();
 
         for (i, panel) in self.config.panels.iter().enumerate() {
-            // 每个 panel 上下留 4px 呼吸空间,避免内容紧贴分割线
-            // info-line 列表内部行间距不受影响(py 作用在列表整体外层)
+            // 每个 panel 上下留 12px 呼吸空间,避免内容紧贴分割线。
+            // 12px 取自用户反馈:下边距当前足够,以此为准,上下统一。
+            // info-line 列表内部行间距不受影响(py 作用在列表整体外层)。
             panels.push(
                 div()
-                    .py(px(4.))
+                    .py(px(12.))
                     .child(self.render_panel(panel, i, theme))
                     .into_any_element(),
             );

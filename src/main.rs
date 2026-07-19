@@ -42,11 +42,13 @@ fn main() {
                         h += 8.0; // panel 间距
                     }
                     h += match panel {
-                        crate::config::BarPanel::InfoLine { items } => {
-                            // 行高 22px + py(4)*2 = 8px 呼吸空间
-                            (items.len().max(1) as f32) * 22.0 + 8.0
+                        crate::config::BarPanel::InfoLine { title, items } => {
+                            // 行高 22px + py(12)*2 = 24px 呼吸空间
+                            // 可选 title 占一行(22px)
+                            let title_h = if title.is_some() { 22.0 } else { 0.0 };
+                            (items.len().max(1) as f32) * 22.0 + title_h + 24.0
                         }
-                        _ => 56.0 + 8.0,
+                        _ => 56.0 + 24.0,
                     };
                 }
                 let _ = n;

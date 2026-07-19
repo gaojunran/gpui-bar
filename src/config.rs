@@ -49,6 +49,8 @@ pub enum BarPanel {
     },
     /// 单行信息列表:每行 title 左 / desc 右,两端对齐,溢出省略号
     InfoLine {
+        #[serde(default)]
+        title: Option<String>,
         items: Vec<BarInfoLineItem>,
     },
     /// 多行信息:title 一行,desc 可换行
