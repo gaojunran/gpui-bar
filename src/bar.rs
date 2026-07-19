@@ -1,0 +1,296 @@
+use std::convert::TryFrom;
+
+use gpui::*;
+use gpui_component::{h_flex, v_flex, progress::Progress, ActiveTheme, Sizable, StyledExt as _};
+
+use crate::config::{BarAction, BarConfig, BarPanel, BarStatItem};
+
+pub struct Bar {
+    config: BarConfig,
+}
+
+impl Bar {
+    pub fn new(config: BarConfig) -> Self {
+        Self { config }
+    }
+
+    fn format_value(value: f64, unit: &Option<String>) -> String {
+        let unit_str = unit.as_deref().unwrap_or("");
+        if value.fract() == 0.0 {
+            format!("{:.0}{}", value, unit_str)
+        } else {
+            format!("{:.1}{}", value, unit_str)
+        }
+    }
+
+    fn parse_color(hex: &str) -> Option<Hsla> {
+        Rgba::try_from(hex).ok().map(Hsla::from)
+    }
+
+    /// 执行点击动作。阻塞型操作(url/function)放到后台线程，避免卡 UI。
+    fn execute_action(action: &BarAction, cx: &mut App) {
+        match action {
+            BarAction::Url { url } => {
+                let url = url.clone();
+                cx.background_executor()
+                    .spawn(async move {
+                        if let Err(e) = open::that(&url) {
+                            eprintln!("[action:url] open {url} failed: {e}");
+                        }
+                    })
+                    .detach();
+            }
+            BarAction::Command { command } => {
+                match std::process::Command::new("sh").arg("-c").arg(command).spawn() {
+                    Ok(_) => {}
+                    Err(e) => eprintln!("[action:command] `{command}` spawn failed: {e}"),
+                }
+            }
+            BarAction::Function { name } => {
+                let path = crate::config::config_path();
+                let name = name.clone();
+                cx.background_executor()
+                    .spawn(async move {
+                        if let Err(e) = crate::js_runtime::call_config_function(&path, &name) {
+                            eprintln!("[action:function] call {name} failed: {e}");
+                        }
+                    })
+                    .detach();
+            }
+        }
+    }
+
+    /// 给元素附加 hover 高亮 + 点击动作。返回带交互的元素。
+    /// `flex_1`: wrapper 是否撑满父容器(stat-row 的每个 item 需要,progress-bar 整体已 flex_1)。
+    fn make_clickable(
+        el: impl IntoElement,
+        id: ElementId,
+        action: Option<&BarAction>,
+        theme: &gpui_component::Theme,
+        flex_1: bool,
+    ) -> Stateful<Div> {
+        let mut wrapper = div().id(id).child(el);
+        if flex_1 {
+            wrapper = wrapper.flex_1();
+        }
+
+        if let Some(action) = action {
+            let action = action.clone();
+            let hover_bg = theme.accent.opacity(0.25);
+            let radius = theme.radius;
+            wrapper = wrapper
+                .cursor_pointer()
+                .rounded(radius)
+                .hover(move |s| s.bg(hover_bg))
+                .on_click(move |_, _, cx| {
+                    Self::execute_action(&action, cx);
+                });
+        }
+
+        wrapper
+    }
+
+    fn render_stat_row(
+        &self,
+        items: &Vec<BarStatItem>,
+        panel_idx: usize,
+        theme: &gpui_component::Theme,
+    ) -> impl IntoElement {
+        let item_count = items.len().max(1);
+        let mut children: Vec<AnyElement> = Vec::new();
+
+        for (i, item) in items.iter().enumerate() {
+            let value_text = Self::format_value(item.value, &item.unit);
+
+            let value_color = item.color.as_deref()
+                .and_then(Self::parse_color)
+                .unwrap_or(theme.foreground);
+
+            let mut value_div = div()
+                .text_lg()
+                .font_semibold()
+                .text_color(value_color)
+                .child(value_text);
+
+            if let Some(font) = &item.font {
+                value_div = value_div.font_family(font.clone());
+            }
+
+            let item_el = h_flex()
+                .h_full()
+                .flex_col()
+                .justify_center()
+                .items_center()
+                .gap_0()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(item.label.clone()),
+                )
+                .child(value_div);
+
+            let clickable = Self::make_clickable(
+                item_el,
+                ElementId::named_usize(format!("stat-{panel_idx}"), i),
+                item.action.as_ref(),
+                theme,
+                true,
+            );
+
+            children.push(clickable.into_any_element());
+
+            if i < item_count - 1 {
+                children.push(
+                    div()
+                        .w(px(1.))
+                        .h(px(28.))
+                        .bg(theme.border.opacity(0.4))
+                        .into_any_element(),
+                );
+            }
+        }
+
+        h_flex()
+            .flex_1()
+            .h_full()
+            .items_center()
+            .gap(px(8.))
+            .children(children)
+    }
+
+    fn render_progress_bar(
+        &self,
+        label: &str,
+        value: f64,
+        max: f64,
+        unit: &Option<String>,
+        color: &Option<String>,
+        font: &Option<String>,
+        action: &Option<BarAction>,
+        panel_idx: usize,
+        theme: &gpui_component::Theme,
+    ) -> impl IntoElement {
+        let pct = if max > 0.0 {
+            ((value / max * 100.0) as f32).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        let bar_color = color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.chart_1);
+        let value_color = color.as_deref()
+            .and_then(Self::parse_color)
+            .unwrap_or(theme.foreground);
+
+        let display_value = if unit.is_some() {
+            format!("{:.1} / {:.1} {}", value, max, unit.as_deref().unwrap())
+        } else {
+            format!("{:.0}%", pct)
+        };
+
+        let mut label_div = div()
+            .text_sm()
+            .text_color(theme.muted_foreground)
+            .child(label.to_string());
+
+        if let Some(f) = font {
+            label_div = label_div.font_family(f.clone());
+        }
+
+        let mut value_div = div()
+            .text_sm()
+            .font_semibold()
+            .text_color(value_color)
+            .child(display_value);
+
+        if let Some(f) = font {
+            value_div = value_div.font_family(f.clone());
+        }
+
+        let card_el = v_flex()
+            .h_full()
+            .justify_center()
+            .gap(px(6.))
+            .px(px(8.))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .child(label_div)
+                    .child(value_div),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .child(
+                        Progress::new("bar-progress")
+                            .value(pct)
+                            .color(bar_color)
+                            .small(),
+                    ),
+            );
+
+        Self::make_clickable(card_el, ElementId::Name(format!("prog-{panel_idx}").into()), action.as_ref(), theme, true)
+    }
+
+    fn render_panel(
+        &self,
+        panel: &BarPanel,
+        panel_idx: usize,
+        theme: &gpui_component::Theme,
+    ) -> AnyElement {
+        match panel {
+            BarPanel::StatRow { items } => {
+                self.render_stat_row(items, panel_idx, theme).into_any_element()
+            }
+            BarPanel::ProgressBar { label, value, max, unit, color, font, action } => {
+                self.render_progress_bar(
+                    label, *value, *max, unit, color, font, action, panel_idx, theme,
+                )
+                .into_any_element()
+            }
+        }
+    }
+}
+
+impl Render for Bar {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        // 半透明深色背景，模拟 macOS 菜单栏卡片质感
+        let bg = theme.popover.opacity(0.92);
+        let border = theme.border.opacity(0.25);
+
+        let mut panels: Vec<AnyElement> = Vec::new();
+        let panel_count = self.config.panels.len();
+
+        for (i, panel) in self.config.panels.iter().enumerate() {
+            panels.push(self.render_panel(panel, i, theme));
+
+            if i < panel_count.saturating_sub(1) {
+                panels.push(
+                    div()
+                        .w_full()
+                        .h(px(1.))
+                        .bg(theme.border.opacity(0.3))
+                        .mx(px(16.))
+                        .into_any_element(),
+                );
+            }
+        }
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .px(px(16.))
+            .py(px(12.))
+            .rounded(theme.radius_lg)
+            .bg(bg)
+            .border_1()
+            .border_color(border)
+            .shadow_lg()
+            .children(panels)
+    }
+}

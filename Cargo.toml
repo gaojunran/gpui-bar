@@ -1,0 +1,27 @@
+[package]
+name = "gpui-dashboard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# runtime_shaders on gpui_macos: 把 Metal shader 编译挪到运行时，绕过对完整 Xcode (xcrun metal) 的依赖。
+# 代价是首次启动多花几百毫秒编译 shader。Zed 维护者与 nixpkgs 都用此方式。
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui_macos = { git = "https://github.com/zed-industries/zed", features = ["runtime_shaders"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+open = "5"
+global-hotkey = "0.8"
+rquickjs = { version = "0.12", default-features = false, features = ["rust-alloc"] }
+oxc_allocator = "0.140"
+oxc_parser = "0.140"
+oxc_span = "0.140"
+oxc_semantic = "0.140"
+oxc_transformer = "0.140"
+oxc_codegen = "0.140"

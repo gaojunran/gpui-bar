@@ -1,0 +1,155 @@
+mod bar;
+mod config;
+mod dashboard;
+mod hotkey;
+mod js_runtime;
+mod panel;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use config::load_config;
+use dashboard::Dashboard;
+
+use gpui::*;
+use gpui_component::{Root, Theme, ThemeMode};
+
+fn main() {
+    let config = load_config();
+    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+    app.run(move |cx| {
+        gpui_component::init(cx);
+
+        if let Some(ref bar_config) = config.bar {
+            let always_on_top = config.always_on_top.unwrap_or(true);
+
+            // 按 display_index 选择显示器,默认 0(主显示器)
+            let displays = cx.displays();
+            let display_index = config.display_index.unwrap_or(0);
+            let display = displays
+                .get(display_index)
+                .cloned()
+                .unwrap_or_else(|| cx.primary_display().expect("no display"));
+            let screen = display.bounds();
+
+            let bar_w = px(360.);
+            let panel_count = bar_config.panels.len() as f32;
+            let bar_h = px(24. + 56. * panel_count + 8. * (panel_count - 1.0).max(0.0));
+            let margin = px(16.);
+            let origin = Point {
+                x: screen.origin.x + screen.size.width - bar_w - margin,
+                y: screen.origin.y + margin,
+            };
+
+            let window = cx
+                .open_window(
+                    WindowOptions {
+                        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                            origin,
+                            Size::new(bar_w, bar_h),
+                        ))),
+                        titlebar: None,
+                        is_resizable: false,
+                        is_minimizable: false,
+                        is_movable: true,
+                        display_id: Some(display.id()),
+                        kind: if always_on_top {
+                            WindowKind::Floating
+                        } else {
+                            WindowKind::Normal
+                        },
+                        ..Default::default()
+                    },
+                    |window, cx| {
+                        Theme::change(ThemeMode::Dark, Some(window), cx);
+                        let view = cx.new(|_cx| bar::Bar::new(bar_config.clone()));
+                        cx.new(|cx| Root::new(view, window, cx))
+                    },
+                )
+                .expect("Failed to open bar window");
+
+            // 非 .app bundle 从命令行启动时,activation policy 在 didFinishLaunching 刚设置,
+            // 需等下一个 runloop 让其生效后再激活应用并前置窗口。
+            cx.defer({
+                let window = window.clone();
+                move |cx| {
+                    cx.activate(true);
+                    window
+                        .update(cx, |_, window, _| window.activate_window())
+                        .ok();
+                }
+            });
+
+            // 注册全局热键,唤起/隐藏 bar
+            let hotkey_str = config
+                .hotkey
+                .as_deref()
+                .unwrap_or("cmd+shift+b");
+            match hotkey::register(hotkey_str) {
+                Ok((hotkey_id, manager)) => {
+                    // manager 必须保持存活,放到全局状态
+                    cx.set_global(HotkeyManagerState(manager));
+
+                    let receiver = global_hotkey::GlobalHotKeyEvent::receiver();
+                    let visible = std::sync::Arc::new(AtomicBool::new(true));
+
+                    cx.spawn(async move |cx| {
+                        loop {
+                            cx.background_executor()
+                                .timer(Duration::from_millis(50))
+                                .await;
+
+                            while let Ok(event) = receiver.try_recv() {
+                                if event.id == hotkey_id
+                                    && event.state == global_hotkey::HotKeyState::Pressed
+                                {
+                                    let visible = visible.clone();
+                                    let _ = cx.update(|cx| {
+                                        let is_visible = visible.load(Ordering::Relaxed);
+                                        if is_visible {
+                                            cx.hide();
+                                            visible.store(false, Ordering::Relaxed);
+                                        } else {
+                                            cx.activate(true);
+                                            let _ = window.update(cx, |_, window, _| {
+                                                window.activate_window();
+                                            });
+                                            visible.store(true, Ordering::Relaxed);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    })
+                    .detach();
+                }
+                Err(e) => {
+                    eprintln!("[hotkey] 注册热键 `{hotkey_str}` 失败: {e}");
+                }
+            }
+        } else {
+            let window = cx
+                .open_window(WindowOptions::default(), |window, cx| {
+                    Theme::change(ThemeMode::Dark, Some(window), cx);
+                    let view = cx.new(|cx| Dashboard::new(config.clone(), cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .expect("Failed to open window");
+
+            cx.defer({
+                let window = window.clone();
+                move |cx| {
+                    cx.activate(true);
+                    window
+                        .update(cx, |_, window, _| window.activate_window())
+                        .ok();
+                }
+            });
+        }
+    });
+}
+
+/// 持有 GlobalHotKeyManager,保持全局热键注册存活。
+struct HotkeyManagerState(#[allow(dead_code)] global_hotkey::GlobalHotKeyManager);
+
+impl gpui::Global for HotkeyManagerState {}
