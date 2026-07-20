@@ -1,7 +1,54 @@
 use anyhow::Context as _;
 use rquickjs::{Context, Ctx, Function, Module, Promise, Runtime};
 use serde_json::Value;
+use std::io::Write;
 use std::path::Path;
+
+/// 统一日志文件路径:`~/.config/gpui-dashboard/gpui-bar.log`
+/// GUI app 由 launchd 拉起,stdout/stderr 不可见,所有诊断日志落盘到这里。
+fn log_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    std::path::PathBuf::from(home).join(".config/gpui-dashboard/gpui-bar.log")
+}
+
+/// 写一行带时间戳的日志到 log_path()。失败静默(日志不应影响主流程)。
+fn write_log(tag: &str, msg: &str) {
+    let path = log_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let line = format!("[{ts}] {tag} {msg}\n");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// host function: log(...args) -> undefined
+/// 把任意数量参数转成字符串(对象经 JSON.stringify)写入统一日志文件。
+/// 供配置侧打点排查;GUI app 无 stdout,这是用户侧唯一可见的诊断通道。
+fn log_handler<'js>(ctx: Ctx<'js>, args: Vec<rquickjs::Value<'js>>) -> rquickjs::Result<()> {
+    let mut parts: Vec<String> = Vec::with_capacity(args.len());
+    for v in args {
+        if v.is_undefined() {
+            parts.push("undefined".into());
+        } else if v.is_null() {
+            parts.push("null".into());
+        } else if let Some(s) = v.as_string().and_then(|s| s.to_string().ok()) {
+            parts.push(s);
+        } else {
+            ctx.globals().set("__log_arg", v.clone())?;
+            let s: String = ctx.eval::<String, _>("JSON.stringify(__log_arg)")?;
+            parts.push(s);
+        }
+    }
+    write_log("[config]", &parts.join(" "));
+    Ok(())
+}
 
 /// 将 TypeScript 源码剥离类型注解，输出纯 JS。
 /// 链路：Parser → SemanticBuilder → Transformer(strip types) → Codegen
@@ -187,7 +234,7 @@ fn fetch_handler<'js>(
     match do_request(&url, &opts) {
         Ok(resp) => resolve_response(&ctx, &resolve, &reject, resp, false)?,
         Err(e) => {
-            eprintln!("[fetch] error for {url}: {e}");
+            write_log("[fetch]", &format!("error for {url}: {e}"));
             reject.call::<_, ()>((e.to_string(),))?;
         }
     }
@@ -207,13 +254,13 @@ fn exec_handler<'js>(ctx: Ctx<'js>, command: String) -> rquickjs::Result<Promise
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("[exec] `{command}` failed (status {:?}): {stderr}", out.status.code());
+                write_log("[exec]", &format!("`{command}` failed (status {:?}): {stderr}", out.status.code()));
             }
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             resolve.call::<_, ()>((stdout,))?;
         }
         Err(e) => {
-            eprintln!("[exec] `{command}` spawn failed: {e}");
+            write_log("[exec]", &format!("`{command}` spawn failed: {e}"));
             reject.call::<_, ()>((e.to_string(),))?;
         }
     }
@@ -255,7 +302,7 @@ fn env_handler<'js>(ctx: Ctx<'js>, name: String) -> rquickjs::Result<String> {
     match std::env::var(&name) {
         Ok(v) => Ok(v),
         Err(e) => {
-            eprintln!("[env] `{name}` not found: {e}");
+            write_log("[env]", &format!("`{name}` not found: {e}"));
             Err(rquickjs::Exception::throw_message(
                 &ctx,
                 &format!("env `{name}` not found: {e}"),
@@ -285,7 +332,7 @@ fn cookies_handler<'js>(
         Some("all") | None => rookie::load(domains),
         Some(other) => {
             let msg = format!("unknown browser: {other} (supported: chrome, firefox, edge, brave, arc, safari, all)");
-            eprintln!("[cookies] {msg}");
+            write_log("[cookies]", &msg);
             reject.call::<_, ()>((msg,))?;
             return Ok(promise);
         }
@@ -305,7 +352,7 @@ fn cookies_handler<'js>(
             }
         }
         Err(e) => {
-            eprintln!("[cookies] read failed: {e}");
+            write_log("[cookies]", &format!("read failed: {e}"));
             reject.call::<_, ()>((e.to_string(),))?;
         }
     }
@@ -325,7 +372,7 @@ fn fetch_json_handler<'js>(
     match do_request(&url, &opts) {
         Ok(resp) => resolve_response(&ctx, &resolve, &reject, resp, true)?,
         Err(e) => {
-            eprintln!("[fetchJson] error for {url}: {e}");
+            write_log("[fetchJson]", &format!("error for {url}: {e}"));
             reject.call::<_, ()>((e.to_string(),))?;
         }
     }
@@ -350,6 +397,7 @@ pub fn run_config(config_path: &Path) -> anyhow::Result<Value> {
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
         global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
         global.set("env", Function::new(ctx.clone(), env_handler)?)?;
+        global.set("log", Function::new(ctx.clone(), log_handler)?)?;
 
         // Module API 处理 export default
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
@@ -393,6 +441,7 @@ pub fn call_config_function(config_path: &Path, func_name: &str) -> anyhow::Resu
         global.set("exec", Function::new(ctx.clone(), exec_handler)?)?;
         global.set("cookies", Function::new(ctx.clone(), cookies_handler)?)?;
         global.set("env", Function::new(ctx.clone(), env_handler)?)?;
+        global.set("log", Function::new(ctx.clone(), log_handler)?)?;
 
         let module = Module::declare(ctx.clone(), "config", js.as_str())?;
         let (evaluated, eval_promise) = module.eval()?;

@@ -214,6 +214,14 @@ declare function cookies(domain?: string, browser?: string): Promise<Cookie[]>;
  */
 declare function env(name: string): string;
 
+/**
+ * host function: 写一行日志到统一日志文件
+ * (~/.config/gpui-dashboard/gpui-bar.log)。
+ * GUI app 无 stdout,这是配置侧唯一可见的诊断通道。
+ * 同步返回,不走 Promise。
+ */
+declare function log(msg: string): void;
+
 interface Cookie {
   name: string;
   value: string;
