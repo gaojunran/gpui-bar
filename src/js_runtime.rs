@@ -31,9 +31,9 @@ pub(crate) fn write_log(tag: &str, msg: &str) {
 /// host function: log(...args) -> undefined
 /// 把任意数量参数转成字符串(对象经 JSON.stringify)写入统一日志文件。
 /// 供配置侧打点排查;GUI app 无 stdout,这是用户侧唯一可见的诊断通道。
-fn log_handler<'js>(ctx: Ctx<'js>, args: Vec<rquickjs::Value<'js>>) -> rquickjs::Result<()> {
-    let mut parts: Vec<String> = Vec::with_capacity(args.len());
-    for v in args {
+fn log_handler<'js>(ctx: Ctx<'js>, args: rquickjs::function::Rest<rquickjs::Value<'js>>) -> rquickjs::Result<()> {
+    let mut parts: Vec<String> = Vec::with_capacity(args.0.len());
+    for v in args.0 {
         if v.is_undefined() {
             parts.push("undefined".into());
         } else if v.is_null() {
