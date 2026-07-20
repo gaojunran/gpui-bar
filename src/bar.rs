@@ -186,7 +186,7 @@ impl Bar {
         let display_value = if unit.is_some() {
             format!("{:.1} / {:.1} {}", value, max, unit.as_deref().unwrap())
         } else {
-            format!("{:.0}%", pct)
+            format!("{:.1}%", pct)
         };
 
         let mut label_div = div()
