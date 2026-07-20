@@ -1,8 +1,8 @@
 # gpui-bar
 
-A cross-platform menu bar style dashboard built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework).
+A cross-platform menu bar widget built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework).
 
-![mode: bar](https://img.shields.io/badge/mode-bar%20%2F%20dashboard-blue)
+![mode: bar](https://img.shields.io/badge/mode-bar-blue)
 ![platform: cross-platform](https://img.shields.io/badge/platform-cross--platform-blue)
 ![tested: macOS](https://img.shields.io/badge/tested-macOS-black)
 ![language: rust](https://img.shields.io/badge/language-rust-orange)
@@ -12,8 +12,6 @@ A cross-platform menu bar style dashboard built with [GPUI](https://github.com/z
 ## What it is
 
 `gpui-bar` renders a compact floating card at the top-right corner of your screen, showing live stats and progress bars driven by a TypeScript config file. Click any item to open a URL, run a shell command, or invoke a custom async function. Toggle visibility with a global hotkey.
-
-It also ships a full dashboard mode (sidebar + multi-page + charts) for when you want the same data in a regular window.
 
 ## Why GPUI
 
@@ -26,15 +24,13 @@ It also ships a full dashboard mode (sidebar + multi-page + charts) for when you
 - **Two templates** for the bar
   - `stat-row` — a row of labeled numbers, each independently colored and clickable
   - `progress-bar` — a labeled progress bar with value / max
-- **TypeScript config** — write your config in TS, transpiled and evaluated in an embedded QuickJS runtime. Use `fetch` / `fetchJson` to pull live data from any HTTP API.
+- **TypeScript config** — write your config in TS, transpiled and evaluated in an embedded QuickJS runtime. Use `fetch` / `fetchJson` to pull live data from any HTTP API, and `exec` to run shell commands.
 - **Per-item styling** — hex color and font family per stat item
 - **Click actions** — `url` (open in browser), `command` (shell via `sh -c`), or `function` (call an exported TS function, sync or async)
 - **Multi-monitor** — pick which display the bar appears on via `displayIndex`
 - **Global hotkey** — toggle the bar from anywhere (default `cmd+shift+b`)
-- **Refresh hotkey** — reload the config on demand without restarting (default `cmd+r`, bar mode only)
+- **Refresh hotkey** — reload the config on demand without restarting (default `cmd+r`)
 - **Always-on-top** — float above other apps via `WindowKind::Floating` (default on)
-- **Auto-refresh** — config is re-evaluated on an interval so values stay live
-- **Dashboard mode** — if no `bar` is configured, a full window opens with a sidebar, pages, and chart panels (stat / progress / line / area / bar / pie)
 
 ## Installation
 
@@ -54,19 +50,19 @@ The config file lives at `~/.config/gpui-bar/bar.config.ts`. TypeScript type def
 
 ## Config reference
 
+> **QuickJS runtime.** The config file runs in an embedded QuickJS engine, not Node.js. No Node API (`require`, `fs`, `process`, `Buffer`, …) is available. Common needs — HTTP requests (`fetch` / `fetchJson`), shell execution (`exec`), environment variables (`env`), browser cookies (`cookies`), and logging (`log`) — are registered at the Rust layer as global JS functions. See `types/gpui-dashboard.d.ts` for the full list and signatures.
+
 ```ts
-export default async function getConfig(): Promise<DashboardConfig> {
+export default async function getConfig(): Promise<Config> {
   // Fetch live data here if you want — async is supported.
   const repo = await fetchJson("https://api.github.com/repos/gaojunran/gpui-bar");
   const stars: number = repo.stargazers_count;
 
   return {
-    title: "Dashboard",
-    refreshInterval: 300,          // seconds between re-evaluations
     displayIndex: 0,               // which monitor (0 = primary)
     alwaysOnTop: true,             // float above other apps
     hotkey: "cmd+shift+b",         // global toggle hotkey
-    refreshHotkey: "cmd+r",        // reload config (bar mode only)
+    refreshHotkey: "cmd+r",        // reload config
 
     bar: {
       panels: [
@@ -103,13 +99,11 @@ export async function onIssuesClick() {
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `title` | `string?` | — | App / window title |
-| `refreshInterval` | `number?` | `60` | Seconds between config re-evaluations |
 | `displayIndex` | `number?` | `0` | Which monitor to place the bar on |
 | `alwaysOnTop` | `boolean?` | `true` | Float above other app windows |
 | `hotkey` | `string?` | `"cmd+shift+b"` | Global hotkey to toggle the bar |
-| `refreshHotkey` | `string?` | `"cmd+r"` | Window-level hotkey to reload the config (bar mode only) |
-| `bar` | `BarConfig?` | — | If present, runs in bar mode. If absent, runs in dashboard mode |
+| `refreshHotkey` | `string?` | `"cmd+r"` | Window-level hotkey to reload the config |
+| `bar` | `BarConfig` | — | Bar configuration (panels) |
 
 ### Bar panel kinds
 
@@ -133,16 +127,14 @@ Examples: `"cmd+shift+b"`, `"ctrl+alt+d"`, `"super+f1"`.
 - **GPUI** handles the GPU-accelerated rendering and window management. The bar window uses `WindowKind::Floating` (NSFloatingWindowLevel) for always-on-top, and `titlebar: None` for a borderless card.
 - **rquickjs** + **oxc** transpile and run your TypeScript config in an embedded QuickJS runtime. `fetch` / `fetchJson` are host functions backed by `reqwest::blocking`.
 - **global-hotkey** registers a Carbon `RegisterEventHotKey` for the toggle, polled from a GPUI background task. No extra macOS permissions are required.
-- The config is re-evaluated on `refreshInterval`, so values update live without restarting.
+- The config is re-evaluated when the refresh hotkey is pressed, so values update live without restarting.
 
 ## Project layout
 
 ```
 src/
   main.rs         # entry point, window creation, hotkey loop
-  bar.rs          # bar mode rendering + click actions
-  dashboard.rs    # dashboard mode (sidebar + pages)
-  panel.rs        # chart panels for dashboard mode
+  bar.rs          # bar rendering + click actions
   config.rs       # config schema + serde
   js_runtime.rs   # TS -> JS transpile + QuickJS eval
   hotkey.rs       # hotkey string parser

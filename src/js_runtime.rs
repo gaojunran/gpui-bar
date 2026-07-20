@@ -271,26 +271,74 @@ fn fetch_handler<'js>(
     Ok(promise)
 }
 
-/// host function: exec(command) -> Promise<string>
-/// 同步执行 shell 命令(sh -c),返回 stdout。失败时 reject,stderr 打到 stderr。
+/// exec 的选项。cwd 缺省时回退到 HOME(见 exec_handler 注释)。
+#[derive(serde::Deserialize, Default)]
+struct ExecOptions {
+    #[serde(default)]
+    cwd: Option<String>,
+}
+
+/// 把 JS 侧传入的 options 经 JSON.stringify -> serde_json 反序列化为 ExecOptions。
+fn parse_exec_options<'js>(
+    ctx: &Ctx<'js>,
+    options: Option<rquickjs::Value<'js>>,
+) -> rquickjs::Result<ExecOptions> {
+    match options {
+        Some(v) if !v.is_undefined() && !v.is_null() => {
+            ctx.globals().set("__exec_opts", v)?;
+            let json: String = ctx.eval::<String, _>("JSON.stringify(__exec_opts)")?;
+            Ok(serde_json::from_str(&json).unwrap_or_default())
+        }
+        _ => Ok(ExecOptions::default()),
+    }
+}
+
+/// host function: exec(command, options?) -> Promise<string>
+/// 同步执行 shell 命令(sh -c),返回 stdout。失败时 reject,stderr 打到日志。
 /// 实际是串行阻塞(和 fetch 一致),慢命令会拖慢 config 加载。
-fn exec_handler<'js>(ctx: Ctx<'js>, command: String) -> rquickjs::Result<Promise<'js>> {
+///
+/// cwd 默认为 HOME: macOS GUI app 经 launchd 启动时 cwd 默认为 `/`,
+/// 许多 CLI 工具(fnox 等)依赖 cwd 查找配置文件,在 `/` 下会失败。
+/// 可通过 options.cwd 指定其它目录。
+fn exec_handler<'js>(
+    ctx: Ctx<'js>,
+    args: rquickjs::function::Rest<rquickjs::Value<'js>>,
+) -> rquickjs::Result<Promise<'js>> {
     let (promise, resolve, reject) = Promise::new(&ctx)?;
+    let mut args = args.0.into_iter();
+    let command = match args.next() {
+        Some(v) => match v.as_string().and_then(|s| s.to_string().ok()) {
+            Some(s) => s,
+            None => {
+                reject.call::<_, ()>(("exec: command must be a string",))?;
+                return Ok(promise);
+            }
+        },
+        None => {
+            reject.call::<_, ()>(("exec: command is required",))?;
+            return Ok(promise);
+        }
+    };
+    let opts = parse_exec_options(&ctx, args.next())?;
+    let cwd = opts
+        .cwd
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".into()));
     match std::process::Command::new("sh")
         .arg("-c")
         .arg(&command)
+        .current_dir(&cwd)
         .output()
     {
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                write_log("[exec]", &format!("`{command}` failed (status {:?}): {stderr}", out.status.code()));
+                write_log("[exec]", &format!("`{command}` (cwd={cwd}) failed (status {:?}): {stderr}", out.status.code()));
             }
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             resolve.call::<_, ()>((stdout,))?;
         }
         Err(e) => {
-            write_log("[exec]", &format!("`{command}` spawn failed: {e}"));
+            write_log("[exec]", &format!("`{command}` (cwd={cwd}) spawn failed: {e}"));
             reject.call::<_, ()>((e.to_string(),))?;
         }
     }

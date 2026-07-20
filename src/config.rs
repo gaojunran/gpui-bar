@@ -2,13 +2,9 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 #[derive(Deserialize, Clone, Debug, Default)]
-pub struct DashboardConfig {
-    pub title: Option<String>,
-    #[serde(default, alias = "refreshInterval")]
-    pub refresh_interval: Option<u64>,
+pub struct Config {
     #[serde(default)]
-    pub pages: Vec<PageConfig>,
-    pub bar: Option<BarConfig>,
+    pub bar: BarConfig,
     /// 启动时是否置顶(浮在其它应用窗口之上),默认 true
     #[serde(default, alias = "alwaysOnTop")]
     pub always_on_top: Option<bool>,
@@ -23,10 +19,10 @@ pub struct DashboardConfig {
     pub refresh_hotkey: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 pub struct BarConfig {
     #[serde(default)]
-   pub panels: Vec<BarPanel>,
+    pub panels: Vec<BarPanel>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -114,134 +110,21 @@ pub struct BarStatItem {
     pub action: Option<BarAction>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
-pub struct PageConfig {
-    #[allow(dead_code)]
-    pub id: String,
-    pub title: String,
-    pub icon: Option<String>,
-    #[serde(default)]
-    pub panels: Vec<PanelConfig>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct PanelConfig {
-    pub id: String,
-    pub title: String,
-    #[serde(flatten)]
-    pub kind: PanelKind,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum PanelKind {
-    Stat {
-        #[serde(default)]
-        value: Option<f64>,
-        unit: Option<String>,
-        percent: Option<f32>,
-    },
-    Progress {
-        #[serde(default)]
-        value: Option<f64>,
-        max: Option<f64>,
-    },
-    LineChart {
-        data: Vec<DataPoint>,
-    },
-    AreaChart {
-        data: Vec<DataPoint>,
-    },
-    BarChart {
-        data: Vec<DataPoint>,
-    },
-    PieChart {
-        data: Vec<DataPoint>,
-    },
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct DataPoint {
-    pub label: String,
-    pub value: f64,
-}
-
 pub fn config_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     PathBuf::from(home).join(".config/gpui-bar/bar.config.ts")
 }
 
-pub fn load_config() -> DashboardConfig {
+pub fn load_config() -> Config {
     let path = config_path();
     match crate::js_runtime::run_config(&path) {
         Ok(value) => serde_json::from_value(value).unwrap_or_else(|e| {
             crate::js_runtime::write_log("[config]", &format!("deserialize failed: {e}"));
-            DashboardConfig::default()
+            Config::default()
         }),
         Err(e) => {
             crate::js_runtime::write_log("[config]", &format!("run_config failed: {e}"));
-            DashboardConfig::default()
+            Config::default()
         }
-    }
-}
-
-pub fn parse_icon(name: &str) -> gpui_component::IconName {
-    match name {
-        "layout-dashboard" => gpui_component::IconName::LayoutDashboard,
-        "gallery-vertical-end" => gpui_component::IconName::GalleryVerticalEnd,
-        "chart-pie" => gpui_component::IconName::ChartPie,
-        "bot" => gpui_component::IconName::Bot,
-        "cpu" => gpui_component::IconName::Cpu,
-        "settings" => gpui_component::IconName::Settings,
-        "inbox" => gpui_component::IconName::Inbox,
-        "calendar" => gpui_component::IconName::Calendar,
-        "folder" => gpui_component::IconName::Folder,
-        "search" => gpui_component::IconName::Search,
-        "chevron-down" => gpui_component::IconName::ChevronDown,
-        "chevron-right" => gpui_component::IconName::ChevronRight,
-        "close" => gpui_component::IconName::Close,
-        "info" => gpui_component::IconName::Info,
-        "circle-check" => gpui_component::IconName::CircleCheck,
-        "triangle-alert" => gpui_component::IconName::TriangleAlert,
-        "circle-x" => gpui_component::IconName::CircleX,
-        "user" => gpui_component::IconName::User,
-        "github" => gpui_component::IconName::Github,
-        "arrow-left" => gpui_component::IconName::ArrowLeft,
-        "arrow-right" => gpui_component::IconName::ArrowRight,
-        "minimize" => gpui_component::IconName::Minimize,
-        "maximize" => gpui_component::IconName::Maximize,
-        "window-minimize" => gpui_component::IconName::WindowMinimize,
-        "window-maximize" => gpui_component::IconName::WindowMaximize,
-        "window-close" => gpui_component::IconName::WindowClose,
-        "window-restore" => gpui_component::IconName::WindowRestore,
-        "panel-left" => gpui_component::IconName::PanelLeft,
-        "panel-right" => gpui_component::IconName::PanelRight,
-        "panel-bottom" => gpui_component::IconName::PanelBottom,
-        "ellipsis" => gpui_component::IconName::Ellipsis,
-        "loader" => gpui_component::IconName::Loader,
-        "star" => gpui_component::IconName::Star,
-        "star-fill" => gpui_component::IconName::StarFill,
-        "plus" => gpui_component::IconName::Plus,
-        "minus" => gpui_component::IconName::Minus,
-        "check" => gpui_component::IconName::Check,
-        "copy" => gpui_component::IconName::Copy,
-        "eye" => gpui_component::IconName::Eye,
-        "eye-off" => gpui_component::IconName::EyeOff,
-        "asterisk" => gpui_component::IconName::Asterisk,
-        "resize-corner" => gpui_component::IconName::ResizeCorner,
-        "panel-left-open" => gpui_component::IconName::PanelLeftOpen,
-        "panel-right-open" => gpui_component::IconName::PanelRightOpen,
-        "panel-left-close" => gpui_component::IconName::PanelLeftClose,
-        "panel-right-close" => gpui_component::IconName::PanelRightClose,
-        "inspector" => gpui_component::IconName::Inspector,
-        "sort-ascending" => gpui_component::IconName::SortAscending,
-        "sort-descending" => gpui_component::IconName::SortDescending,
-        "chevrons-up-down" => gpui_component::IconName::ChevronsUpDown,
-        "undo-2" => gpui_component::IconName::Undo2,
-        "case-sensitive" => gpui_component::IconName::CaseSensitive,
-        "replace" => gpui_component::IconName::Replace,
-        "chevron-left" => gpui_component::IconName::ChevronLeft,
-        "external-link" => gpui_component::IconName::ExternalLink,
-        _ => gpui_component::IconName::LayoutDashboard,
     }
 }

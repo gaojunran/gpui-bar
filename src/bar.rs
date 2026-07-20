@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use gpui::*;
 use gpui_component::{h_flex, v_flex, progress::Progress, ActiveTheme, Sizable, StyledExt as _};
 
-use crate::config::{BarAction, BarConfig, BarInfoLineItem, BarPanel, BarStatItem, DashboardConfig};
+use crate::config::{BarAction, BarConfig, BarInfoLineItem, BarPanel, BarStatItem, Config};
 
 // 窗口级刷新配置动作:仅当 bar 窗口聚焦时由 keybinding 派发,触发重新加载配置文件。
 actions!([RefreshConfig]);
@@ -23,15 +23,15 @@ impl Bar {
         let path = crate::config::config_path();
         crate::js_runtime::write_log("[refresh]", "config reload triggered");
         cx.spawn(async move |this, cx| {
-            let result: anyhow::Result<Option<BarConfig>> = cx
+            let result: anyhow::Result<BarConfig> = cx
                 .background_spawn(async move {
                     let value = crate::js_runtime::run_config(&path)?;
-                    let cfg: DashboardConfig = serde_json::from_value(value)?;
+                    let cfg: Config = serde_json::from_value(value)?;
                     Ok(cfg.bar)
                 })
                 .await;
             match result {
-                Ok(Some(new_config)) => {
+                Ok(new_config) => {
                     let panels = new_config.panels.len();
                     let _ = this.update(cx, |this, cx| {
                         this.config = new_config;
@@ -41,9 +41,6 @@ impl Bar {
                         "[refresh]",
                         &format!("config reloaded, {panels} panels"),
                     );
-                }
-                Ok(None) => {
-                    crate::js_runtime::write_log("[refresh]", "config has no bar section, kept old");
                 }
                 Err(e) => {
                     crate::js_runtime::write_log("[refresh]", &format!("failed: {e}"));

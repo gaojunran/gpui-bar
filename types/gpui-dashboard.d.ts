@@ -3,13 +3,11 @@
  *
  * 放置在用户配置目录（~/.config/gpui-bar/），由同目录 tsconfig.json 自动 include。
  * 用户在 bar.config.ts 中无需 import，类型与 host function 全局可用。
+ *
+ * 注意：配置文件运行在 QuickJS（嵌入式 JS 引擎）中，不是 Node.js。
+ * 不支持任何 Node API（如 require / fs / process / Buffer）。
+ * 常用能力（HTTP 请求、执行命令、读环境变量等）已由 Rust 层注册为全局 JS 函数，见下方 declare。
  */
-
-interface DataPoint {
-  label: string;
-  value: number;
-  color?: string;
-}
 
 interface BarStatItem {
   label: string;
@@ -69,59 +67,8 @@ interface BarConfig {
   panels: BarPanel[];
 }
 
-type PanelConfig =
-  | {
-      id: string;
-      title: string;
-      kind: "stat";
-      value?: number;
-      unit?: string;
-      percent?: number;
-    }
-  | {
-      id: string;
-      title: string;
-      kind: "progress";
-      value?: number;
-      max?: number;
-    }
-  | {
-      id: string;
-      title: string;
-      kind: "line-chart";
-      data: DataPoint[];
-    }
-  | {
-      id: string;
-      title: string;
-      kind: "area-chart";
-      data: DataPoint[];
-    }
-  | {
-      id: string;
-      title: string;
-      kind: "bar-chart";
-      data: DataPoint[];
-    }
-  | {
-      id: string;
-      title: string;
-      kind: "pie-chart";
-      data: DataPoint[];
-    };
-
-interface PageConfig {
-  id: string;
-  title: string;
-  icon?: string;
-  panels: PanelConfig[];
-}
-
-interface DashboardConfig {
-  title?: string;
-  refreshInterval?: number;
-  pages?: PageConfig[];
-  bar?: BarConfig;
+interface Config {
+  bar: BarConfig;
   /** 启动时是否置顶(浮在其它应用窗口之上),默认 true */
   alwaysOnTop?: boolean;
   /** 窗口出现在哪个显示器(0=主显示器,1=第二个...),默认 0 */
@@ -131,22 +78,6 @@ interface DashboardConfig {
   /** 刷新配置的窗口级热键(仅 bar 窗口聚焦时生效),如 "cmd+r",默认 "cmd+r" */
   refreshHotkey?: string;
 }
-
-/** 支持的图标名（与 Rust 端 parse_icon 匹配，未列出的回退到 layout-dashboard） */
-type IconName =
-  | "layout-dashboard"
-  | "gallery-vertical-end"
-  | "chart-pie"
-  | "bot"
-  | "cpu"
-  | "settings"
-  | "inbox"
-  | "calendar"
-  | "folder"
-  | "search"
-  | "star"
-  | "github"
-  | "user";
 
 /**
  * host function: 发起 HTTP 请求，返回完整响应对象。
@@ -192,8 +123,16 @@ interface HttpResponse<T = string> {
  * host function: 通过 `sh -c` 执行 shell 命令，返回 stdout。
  * 同步阻塞执行（在专用线程），命令失败时 Promise reject。
  * 注意：慢命令会拖慢 config 加载；复杂场景建议用 fetchJson 调本地 HTTP 服务。
+ *
+ * @param command shell 命令
+ * @param options 选项。cwd 指定工作目录，默认为 $HOME
+ *                （macOS GUI app 经 launchd 启动时 cwd 为 `/`，会导致 fnox 等依赖
+ *                 cwd 查找配置的 CLI 工具失败，故默认回退到 HOME）。
  */
-declare function exec(command: string): Promise<string>;
+declare function exec(
+  command: string,
+  options?: { cwd?: string }
+): Promise<string>;
 
 /**
  * host function: 从浏览器读取 cookies。
