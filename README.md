@@ -1,16 +1,25 @@
 # gpui-bar
 
-A macOS menu bar style dashboard built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework).
+A cross-platform menu bar style dashboard built with [GPUI](https://github.com/zed-industries/zed) (Zed's GPU-accelerated UI framework).
 
 ![mode: bar](https://img.shields.io/badge/mode-bar%20%2F%20dashboard-blue)
-![platform: macos](https://img.shields.io/badge/platform-macOS-black)
+![platform: cross-platform](https://img.shields.io/badge/platform-cross--platform-blue)
+![tested: macOS](https://img.shields.io/badge/tested-macOS-black)
 ![language: rust](https://img.shields.io/badge/language-rust-orange)
+
+> **Cross-platform, macOS-tested.** gpui-bar aims to run anywhere GPUI does. It is currently only tested on macOS — feedback on other platforms is welcome.
 
 ## What it is
 
 `gpui-bar` renders a compact floating card at the top-right corner of your screen, showing live stats and progress bars driven by a TypeScript config file. Click any item to open a URL, run a shell command, or invoke a custom async function. Toggle visibility with a global hotkey.
 
 It also ships a full dashboard mode (sidebar + multi-page + charts) for when you want the same data in a regular window.
+
+## Why GPUI
+
+- **CSS-like styling** — lay out components with a familiar `flex` / `gap` / `padding` / `color` API, no widget boilerplate.
+- **Extreme efficiency** — GPU-accelerated rendering keeps CPU, binary size, and memory footprint minimal.
+- **Zero-IDE lock-in** — no Xcode or platform-specific project files. `cargo run` and you're done.
 
 ## Features
 
@@ -22,6 +31,7 @@ It also ships a full dashboard mode (sidebar + multi-page + charts) for when you
 - **Click actions** — `url` (open in browser), `command` (shell via `sh -c`), or `function` (call an exported TS function, sync or async)
 - **Multi-monitor** — pick which display the bar appears on via `displayIndex`
 - **Global hotkey** — toggle the bar from anywhere (default `cmd+shift+b`)
+- **Refresh hotkey** — reload the config on demand without restarting (default `cmd+r`, bar mode only)
 - **Always-on-top** — float above other apps via `WindowKind::Floating` (default on)
 - **Auto-refresh** — config is re-evaluated on an interval so values stay live
 - **Dashboard mode** — if no `bar` is configured, a full window opens with a sidebar, pages, and chart panels (stat / progress / line / area / bar / pie)
@@ -30,7 +40,7 @@ It also ships a full dashboard mode (sidebar + multi-page + charts) for when you
 
 ### From source
 
-Requires Rust (stable) and a macOS development environment. GPUI's metal shaders are compiled at runtime via the `runtime_shaders` feature, so a full Xcode install is **not** required.
+Requires Rust (stable). On macOS, GPUI's Metal shaders are compiled at runtime via the `runtime_shaders` feature, so a full Xcode install is **not** required — `cargo run` works out of the box.
 
 ```bash
 git clone https://github.com/gaojunran/gpui-bar.git
@@ -40,7 +50,7 @@ cargo run --release
 
 ### Configuration
 
-The config file lives at `~/.config/gpui-dashboard/dashboard.config.ts`. TypeScript type definitions are shipped in `types/gpui-dashboard.d.ts` — copy them next to your config for autocomplete (see `scripts/install-types.sh`).
+The config file lives at `~/.config/gpui-bar/bar.config.ts`. TypeScript type definitions are shipped in `types/gpui-dashboard.d.ts` — copy them next to your config for autocomplete (see `scripts/install-types.sh`).
 
 ## Config reference
 
@@ -56,6 +66,7 @@ export default async function getConfig(): Promise<DashboardConfig> {
     displayIndex: 0,               // which monitor (0 = primary)
     alwaysOnTop: true,             // float above other apps
     hotkey: "cmd+shift+b",         // global toggle hotkey
+    refreshHotkey: "cmd+r",        // reload config (bar mode only)
 
     bar: {
       panels: [
@@ -97,6 +108,7 @@ export async function onIssuesClick() {
 | `displayIndex` | `number?` | `0` | Which monitor to place the bar on |
 | `alwaysOnTop` | `boolean?` | `true` | Float above other app windows |
 | `hotkey` | `string?` | `"cmd+shift+b"` | Global hotkey to toggle the bar |
+| `refreshHotkey` | `string?` | `"cmd+r"` | Window-level hotkey to reload the config (bar mode only) |
 | `bar` | `BarConfig?` | — | If present, runs in bar mode. If absent, runs in dashboard mode |
 
 ### Bar panel kinds
@@ -137,7 +149,7 @@ src/
 types/
   gpui-dashboard.d.ts   # TS types for user configs
 scripts/
-  install-types.sh      # scaffold ~/.config/gpui-dashboard
+  install-types.sh      # scaffold ~/.config/gpui-bar
 ```
 
 ## License
