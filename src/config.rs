@@ -18,6 +18,9 @@ pub struct DashboardConfig {
     /// 唤起/隐藏 bar 的全局热键,字符串格式如 "cmd+shift+b",默认 "cmd+shift+b"
     #[serde(default, alias = "hotkey")]
     pub hotkey: Option<String>,
+    /// 刷新配置的窗口级热键(仅 bar 窗口聚焦时生效),格式如 "cmd+r",默认 "cmd+r"
+    #[serde(default, alias = "refreshHotkey")]
+    pub refresh_hotkey: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -165,7 +168,7 @@ pub struct DataPoint {
 
 pub fn config_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".config/gpui-dashboard/dashboard.config.ts")
+    PathBuf::from(home).join(".config/gpui-bar/bar.config.ts")
 }
 
 pub fn load_config() -> DashboardConfig {

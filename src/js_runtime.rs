@@ -4,11 +4,11 @@ use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
 
-/// 统一日志文件路径:`~/.config/gpui-dashboard/gpui-bar.log`
+/// 统一日志文件路径:`~/.config/gpui-bar/gpui-bar.log`
 /// GUI app 由 launchd 拉起,stdout/stderr 不可见,所有诊断日志落盘到这里。
 fn log_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(".config/gpui-dashboard/gpui-bar.log")
+    std::path::PathBuf::from(home).join(".config/gpui-bar/gpui-bar.log")
 }
 
 /// 写一行带时间戳的日志到 log_path()。失败静默(日志不应影响主流程)。

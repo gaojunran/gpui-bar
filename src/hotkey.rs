@@ -82,3 +82,35 @@ pub fn register(hotkey_str: &str) -> anyhow::Result<(u32, GlobalHotKeyManager)> 
     manager.register(hotkey)?;
     Ok((id, manager))
 }
+
+/// 将用户配置的热键字符串(plus 格式,如 "cmd+r"、"cmd+shift+b")转换为
+/// GPUI KeyBinding 使用的 hyphen 格式(如 "cmd-r"、"cmd-shift-b"),
+/// 并把 global-hotkey 接受的修饰键别名规范化为 GPUI 的名称
+/// (control→ctrl, option/opt→alt, meta→cmd;cmd/super/win/ctrl/alt/shift 原样保留)。
+/// 主键原样透传,合法性交由 GPUI 的 Keystroke::parse 在调用处校验。
+pub fn to_gpui_keystroke(s: &str) -> anyhow::Result<String> {
+    let lower = s.trim().to_lowercase();
+    if lower.is_empty() {
+        anyhow::bail!("hotkey 不能为空");
+    }
+    let parts: Vec<&str> = lower
+        .split('+')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.len() < 2 {
+        anyhow::bail!("热键至少需要修饰键+主键: {s}");
+    }
+    let (mods, key) = parts.split_at(parts.len() - 1);
+    let mut tokens: Vec<String> = mods
+        .iter()
+        .map(|m| match *m {
+            "control" => "ctrl".into(),
+            "option" | "opt" => "alt".into(),
+            "meta" => "cmd".into(),
+            other => other.into(),
+        })
+        .collect();
+    tokens.push(key[0].into());
+    Ok(tokens.join("-"))
+}

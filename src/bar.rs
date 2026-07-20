@@ -3,7 +3,10 @@ use std::convert::TryFrom;
 use gpui::*;
 use gpui_component::{h_flex, v_flex, progress::Progress, ActiveTheme, Sizable, StyledExt as _};
 
-use crate::config::{BarAction, BarConfig, BarInfoLineItem, BarPanel, BarStatItem};
+use crate::config::{BarAction, BarConfig, BarInfoLineItem, BarPanel, BarStatItem, DashboardConfig};
+
+// 窗口级刷新配置动作:仅当 bar 窗口聚焦时由 keybinding 派发,触发重新加载配置文件。
+actions!([RefreshConfig]);
 
 pub struct Bar {
     config: BarConfig,
@@ -12,6 +15,42 @@ pub struct Bar {
 impl Bar {
     pub fn new(config: BarConfig) -> Self {
         Self { config }
+    }
+
+    /// 重新加载配置文件并替换当前 bar 配置。
+    /// 配置执行(含 JS + 网络)在后台线程进行,完成后回到主线程更新视图。
+    pub fn reload_config(&mut self, cx: &mut Context<Self>) {
+        let path = crate::config::config_path();
+        crate::js_runtime::write_log("[refresh]", "config reload triggered");
+        cx.spawn(async move |this, cx| {
+            let result: anyhow::Result<Option<BarConfig>> = cx
+                .background_spawn(async move {
+                    let value = crate::js_runtime::run_config(&path)?;
+                    let cfg: DashboardConfig = serde_json::from_value(value)?;
+                    Ok(cfg.bar)
+                })
+                .await;
+            match result {
+                Ok(Some(new_config)) => {
+                    let panels = new_config.panels.len();
+                    let _ = this.update(cx, |this, cx| {
+                        this.config = new_config;
+                        cx.notify();
+                    });
+                    crate::js_runtime::write_log(
+                        "[refresh]",
+                        &format!("config reloaded, {panels} panels"),
+                    );
+                }
+                Ok(None) => {
+                    crate::js_runtime::write_log("[refresh]", "config has no bar section, kept old");
+                }
+                Err(e) => {
+                    crate::js_runtime::write_log("[refresh]", &format!("failed: {e}"));
+                }
+            }
+        })
+        .detach();
     }
 
     fn format_value(value: f64, unit: &Option<String>) -> String {

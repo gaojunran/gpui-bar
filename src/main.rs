@@ -60,6 +60,7 @@ fn main() {
                 y: screen.origin.y + margin,
             };
 
+            let bar_view = cx.new(|_cx| bar::Bar::new(bar_config.clone()));
             let window = cx
                 .open_window(
                     WindowOptions {
@@ -81,8 +82,7 @@ fn main() {
                     },
                     |window, cx| {
                         Theme::change(ThemeMode::Dark, Some(window), cx);
-                        let view = cx.new(|_cx| bar::Bar::new(bar_config.clone()));
-                        cx.new(|cx| Root::new(view, window, cx))
+                        cx.new(|cx| Root::new(bar_view.clone(), window, cx))
                     },
                 )
                 .expect("Failed to open bar window");
@@ -145,6 +145,26 @@ fn main() {
                 Err(e) => {
                     eprintln!("[hotkey] 注册热键 `{hotkey_str}` 失败: {e}");
                 }
+            }
+
+            // 注册窗口级刷新热键:仅 bar 窗口聚焦时派发 RefreshConfig 动作。
+            // keybinding 在 keymap 中全局注册,但动作派发是 focus-based,
+            // 故仅在 bar 窗口为 key window 时触发(窗口级别)。
+            let refresh_str = config.refresh_hotkey.as_deref().unwrap_or("cmd+r");
+            match hotkey::to_gpui_keystroke(refresh_str) {
+                Ok(ks) => match gpui::Keystroke::parse(&ks) {
+                    Ok(_) => {
+                        cx.bind_keys([KeyBinding::new(&ks, bar::RefreshConfig, None)]);
+                        let bar_view = bar_view.clone();
+                        cx.on_action(move |_: &bar::RefreshConfig, cx: &mut App| {
+                            let _ = bar_view.update(cx, |bar, cx| bar.reload_config(cx));
+                        });
+                    }
+                    Err(e) => eprintln!(
+                        "[hotkey] refresh hotkey `{refresh_str}` (`{ks}`) invalid: {e:?}"
+                    ),
+                },
+                Err(e) => eprintln!("[hotkey] refresh hotkey `{refresh_str}` invalid: {e}"),
             }
         } else {
             let window = cx

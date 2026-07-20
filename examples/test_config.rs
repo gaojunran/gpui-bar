@@ -6,7 +6,7 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-            PathBuf::from(home).join(".config/gpui-dashboard/dashboard.config.ts")
+            PathBuf::from(home).join(".config/gpui-bar/bar.config.ts")
         });
     println!("config path: {}", path.display());
 

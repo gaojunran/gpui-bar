@@ -1,8 +1,8 @@
 /**
- * gpui-dashboard 配置类型定义
+ * gpui-bar 配置类型定义
  *
- * 放置在用户配置目录（~/.config/gpui-dashboard/），由同目录 tsconfig.json 自动 include。
- * 用户在 dashboard.config.ts 中无需 import，类型与 host function 全局可用。
+ * 放置在用户配置目录（~/.config/gpui-bar/），由同目录 tsconfig.json 自动 include。
+ * 用户在 bar.config.ts 中无需 import，类型与 host function 全局可用。
  */
 
 interface DataPoint {
@@ -128,6 +128,8 @@ interface DashboardConfig {
   displayIndex?: number;
   /** 唤起/隐藏 bar 的全局热键,如 "cmd+shift+b",默认 "cmd+shift+b" */
   hotkey?: string;
+  /** 刷新配置的窗口级热键(仅 bar 窗口聚焦时生效),如 "cmd+r",默认 "cmd+r" */
+  refreshHotkey?: string;
 }
 
 /** 支持的图标名（与 Rust 端 parse_icon 匹配，未列出的回退到 layout-dashboard） */
@@ -216,7 +218,7 @@ declare function env(name: string): string;
 
 /**
  * host function: 写一行日志到统一日志文件
- * (~/.config/gpui-dashboard/gpui-bar.log)。
+ * (~/.config/gpui-bar/gpui-bar.log)。
  * GUI app 无 stdout,这是配置侧唯一可见的诊断通道。
  * 同步返回,不走 Promise。
  */
