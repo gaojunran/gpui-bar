@@ -172,11 +172,11 @@ pub fn load_config() -> DashboardConfig {
     let path = config_path();
     match crate::js_runtime::run_config(&path) {
         Ok(value) => serde_json::from_value(value).unwrap_or_else(|e| {
-            eprintln!("config deserialize failed: {e}");
+            crate::js_runtime::write_log("[config]", &format!("deserialize failed: {e}"));
             DashboardConfig::default()
         }),
         Err(e) => {
-            eprintln!("load config failed: {e}");
+            crate::js_runtime::write_log("[config]", &format!("run_config failed: {e}"));
             DashboardConfig::default()
         }
     }

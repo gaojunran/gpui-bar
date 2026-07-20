@@ -12,7 +12,7 @@ fn log_path() -> std::path::PathBuf {
 }
 
 /// 写一行带时间戳的日志到 log_path()。失败静默(日志不应影响主流程)。
-fn write_log(tag: &str, msg: &str) {
+pub(crate) fn write_log(tag: &str, msg: &str) {
     let path = log_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -414,6 +414,7 @@ pub fn run_config(config_path: &Path) -> anyhow::Result<Value> {
         ctx.globals().set("__config_result", raw)?;
         let json_str: String = ctx.eval::<String, _>("JSON.stringify(__config_result)")?;
         let value: Value = serde_json::from_str(&json_str)?;
+        write_log("[config]", &format!("getConfig ok, json bytes={}", json_str.len()));
         Ok(value)
     })?;
 
