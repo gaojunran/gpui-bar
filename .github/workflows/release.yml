@@ -22,18 +22,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Package binary
+      - name: Build .app bundle and DMG
         run: |
-          mkdir -p staging
-          cp target/release/gpui-dashboard staging/
-          cp README.md staging/
-          tar -czf gpui-bar-${{ github.ref_name }}-macos.tar.gz -C staging .
+          chmod +x scripts/build_dmg.sh
+          VERSION=${{ github.ref_name }} bash scripts/build_dmg.sh
+          # move to a stable name matching the tag
+          mv dist/gpui-bar-v*-macos.dmg "gpui-bar-${{ github.ref_name }}-macos.dmg"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: gpui-bar-${{ github.ref_name }}-macos.tar.gz
+          files: gpui-bar-${{ github.ref_name }}-macos.dmg
           generate_release_notes: true
