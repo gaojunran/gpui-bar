@@ -19,6 +19,7 @@ fn main() {
 
         let bar_config = &config.bar;
         let always_on_top = config.always_on_top.unwrap_or(true);
+        let keep_focus = config.keep_focus.unwrap_or(false);
 
         // 按 display_index 选择显示器,默认 0(主显示器)
         let displays = cx.displays();
@@ -55,7 +56,7 @@ fn main() {
             y: screen.origin.y + margin,
         };
 
-        let bar_view = cx.new(|_cx| bar::Bar::new(bar_config.clone()));
+        let bar_view = cx.new(|_cx| bar::Bar::new(bar_config.clone(), keep_focus));
         let window = cx
             .open_window(
                 WindowOptions {
@@ -106,6 +107,7 @@ fn main() {
 
                 let receiver = global_hotkey::GlobalHotKeyEvent::receiver();
                 let visible = std::sync::Arc::new(AtomicBool::new(true));
+                let bar_view_for_hotkey = bar_view.clone();
 
                 cx.spawn(async move |cx| {
                     loop {
@@ -121,9 +123,11 @@ fn main() {
                                 let _ = cx.update(|cx| {
                                     let is_visible = visible.load(Ordering::Relaxed);
                                     if is_visible {
+                                        let _ = bar_view_for_hotkey.update(cx, |bar, _| bar.set_hidden(true));
                                         cx.hide();
                                         visible.store(false, Ordering::Relaxed);
                                     } else {
+                                        let _ = bar_view_for_hotkey.update(cx, |bar, _| bar.set_hidden(false));
                                         cx.activate(true);
                                         let _ = window.update(cx, |_, window, _| {
                                             window.activate_window();

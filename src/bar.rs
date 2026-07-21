@@ -10,11 +10,20 @@ actions!([RefreshConfig]);
 
 pub struct Bar {
     config: BarConfig,
+    keep_focus: bool,
+    focus_observer_set_up: bool,
+    /// 窗口是否被全局热键主动隐藏。
+    /// keep_focus 模式下,隐藏时跳过失活后的重新激活,否则 hide 会被 observer 立即撤销。
+    hidden: bool,
 }
 
 impl Bar {
-    pub fn new(config: BarConfig) -> Self {
-        Self { config }
+    pub fn new(config: BarConfig, keep_focus: bool) -> Self {
+        Self { config, keep_focus, focus_observer_set_up: false, hidden: false }
+    }
+
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
     }
 
     /// 重新加载配置文件并替换当前 bar 配置。
@@ -50,13 +59,19 @@ impl Bar {
         .detach();
     }
 
-    fn format_value(value: f64, unit: &Option<String>) -> String {
+    fn format_value(value: f64, unit: &Option<String>, decimals: Option<u8>) -> String {
         let unit_str = unit.as_deref().unwrap_or("");
-        if value.fract() == 0.0 {
-            format!("{:.0}{}", value, unit_str)
-        } else {
-            format!("{:.1}{}", value, unit_str)
-        }
+        let n = match decimals {
+            Some(n) => n,
+            None => {
+                if value.fract() == 0.0 {
+                    0
+                } else {
+                    1
+                }
+            }
+        };
+        format!("{:.*}{}", n as usize, value, unit_str)
     }
 
     fn parse_color(hex: &str) -> Option<Hsla> {
@@ -136,20 +151,40 @@ impl Bar {
         let mut children: Vec<AnyElement> = Vec::new();
 
         for (i, item) in items.iter().enumerate() {
-            let value_text = Self::format_value(item.value, &item.unit);
+            let value_text = Self::format_value(item.value, &item.unit, item.decimals);
 
             let value_color = item.color.as_deref()
                 .and_then(Self::parse_color)
                 .unwrap_or(theme.foreground);
 
+            // 数值行: prefix(小字/muted) + value(大字/semibold/强调) + suffix(小字/muted)
+            // 底部对齐: 各字号 line_height 紧贴自身字号(行盒=字号),items_end 对齐行盒底部,
+            // 使小字与大字的文字底部接近对齐。
+            let value_rem = rems(1.125);
+            let small_rem = rems(0.75);
+            let mut value_row = h_flex().items_end().gap(px(1.));
+
+            if let Some(pfx) = &item.prefix {
+                value_row = value_row.child(Self::text_div(
+                    pfx, |d| d.text_xs().line_height(small_rem), theme.muted_foreground, &item.font,
+                ));
+            }
+
             let mut value_div = div()
                 .text_lg()
+                .line_height(value_rem)
                 .font_semibold()
                 .text_color(value_color)
                 .child(value_text);
-
             if let Some(font) = &item.font {
                 value_div = value_div.font_family(font.clone());
+            }
+            value_row = value_row.child(value_div);
+
+            if let Some(sfx) = &item.suffix {
+                value_row = value_row.child(Self::text_div(
+                    sfx, |d| d.text_xs().line_height(small_rem), theme.muted_foreground, &item.font,
+                ));
             }
 
             let item_el = h_flex()
@@ -164,7 +199,7 @@ impl Bar {
                         .text_color(theme.muted_foreground)
                         .child(item.label.clone()),
                 )
-                .child(value_div);
+                .child(value_row);
 
             let clickable = Self::make_clickable(
                 item_el,
@@ -432,7 +467,20 @@ impl Bar {
 }
 
 impl Render for Bar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 首帧注册窗口激活状态监听:keep_focus 开启时,窗口失活后立即重新激活。
+        // 用于 LSUIElement accessory app 防止点击空白处导致窗口失焦。
+        if !self.focus_observer_set_up {
+            self.focus_observer_set_up = true;
+            cx.observe_window_activation(window, |this, window, cx| {
+                if this.keep_focus && !this.hidden && !window.is_window_active() {
+                    cx.activate(true);
+                    window.activate_window();
+                }
+            })
+            .detach();
+        }
+
         let theme = cx.theme();
 
         // 半透明深色背景，模拟 macOS 菜单栏卡片质感

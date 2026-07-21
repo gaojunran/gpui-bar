@@ -13,6 +13,12 @@ interface BarStatItem {
   label: string;
   value: number;
   unit?: string;
+  /** 数值前缀,如 "¥"。渲染为小字 + 非强调色,与数值基线对齐。 */
+  prefix?: string;
+  /** 数值后缀,如 "%"/"次"。渲染为小字 + 非强调色。 */
+  suffix?: string;
+  /** 小数位数。省略时整数显示 0 位、小数显示 1 位。 */
+  decimals?: number;
   color?: string;
   font?: string;
   action?: BarAction;
@@ -77,6 +83,8 @@ interface Config {
   hotkey?: string;
   /** 刷新配置的窗口级热键(仅 bar 窗口聚焦时生效),如 "cmd+r",默认 "cmd+r" */
   refreshHotkey?: string;
+  /** 点击空白处时是否保持窗口聚焦(不失活),默认 false(正常失焦) */
+  keepFocus?: boolean;
 }
 
 /**

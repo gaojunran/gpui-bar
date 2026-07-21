@@ -17,6 +17,9 @@ pub struct Config {
     /// 刷新配置的窗口级热键(仅 bar 窗口聚焦时生效),格式如 "cmd+r",默认 "cmd+r"
     #[serde(default, alias = "refreshHotkey")]
     pub refresh_hotkey: Option<String>,
+    /// 点击空白处时是否保持窗口聚焦(不失活),默认 false(正常失焦)
+    #[serde(default, alias = "keepFocus")]
+    pub keep_focus: Option<bool>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -99,6 +102,15 @@ pub struct BarStatItem {
     pub label: String,
     pub value: f64,
     pub unit: Option<String>,
+    /// 数值前缀,如 "¥"。渲染为小字 + 非强调色,与数值同基线。
+    #[serde(default)]
+    pub prefix: Option<String>,
+    /// 数值后缀,如 "%"/"次"。渲染为小字 + 非强调色。
+    #[serde(default)]
+    pub suffix: Option<String>,
+    /// 小数位数。None 时整数显示 0 位、小数显示 1 位;Some(n) 强制 n 位。
+    #[serde(default)]
+    pub decimals: Option<u8>,
     /// 颜色，hex 格式如 "#ff5500"，影响数值颜色。None 时用主题色。
     #[serde(default)]
     pub color: Option<String>,

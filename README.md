@@ -63,6 +63,7 @@ export default async function getConfig(): Promise<Config> {
     alwaysOnTop: true,             // float above other apps
     hotkey: "cmd+shift+b",         // global toggle hotkey
     refreshHotkey: "cmd+r",        // reload config
+    keepFocus: false,              // keep bar focused when clicking blank areas
 
     bar: {
       panels: [
@@ -103,6 +104,7 @@ export async function onIssuesClick() {
 | `alwaysOnTop` | `boolean?` | `true` | Float above other app windows |
 | `hotkey` | `string?` | `"cmd+shift+b"` | Global hotkey to toggle the bar |
 | `refreshHotkey` | `string?` | `"cmd+r"` | Window-level hotkey to reload the config |
+| `keepFocus` | `boolean?` | `false` | Keep the bar window focused when clicking blank areas (prevent deactivation) |
 | `bar` | `BarConfig` | — | Bar configuration (panels) |
 
 ### Bar panel kinds
